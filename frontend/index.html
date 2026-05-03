@@ -1,0 +1,1295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>BodyBuilder</title>
+<script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --surface2: #21263a; --surface3: #282d42;
+    --border: #2e3349; --accent: #4f8ef7; --accent2: #7c5cbf;
+    --green: #2ecc71; --red: #e74c3c; --orange: #f39c12; --yellow: #f1c40f;
+    --text: #e8eaf0; --muted: #7b8199; --radius: 10px; --font: 'Segoe UI', system-ui, sans-serif;
+  }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; min-height: 100vh; }
+  #root { display: flex; flex-direction: column; min-height: 100vh; }
+
+  .header { background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 0 24px; display: flex; align-items: center; justify-content: space-between; height: 56px; }
+  .header-brand { display: flex; align-items: center; gap: 10px; font-size: 20px; font-weight: 700; color: var(--accent); }
+  .header-brand span { color: var(--text); }
+  .header-right { display: flex; align-items: center; gap: 10px; }
+  .header-version { font-size: 12px; color: var(--muted); cursor: pointer; padding: 4px 10px;
+    border: 1px solid var(--border); border-radius: 20px; transition: all .2s; }
+  .header-version:hover { border-color: var(--accent); color: var(--accent); }
+
+  .tabs { background: var(--surface); border-bottom: 1px solid var(--border);
+    display: flex; padding: 0 24px; gap: 2px; overflow-x: auto; }
+  .tab { padding: 14px 18px; cursor: pointer; font-size: 13px; font-weight: 500; white-space: nowrap;
+    border-bottom: 2px solid transparent; color: var(--muted); transition: all .2s; }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .content { flex: 1; padding: 28px; max-width: 1300px; width: 100%; margin: 0 auto; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; margin-bottom: 20px; }
+  .card-title { font-size: 15px; font-weight: 700; margin-bottom: 18px; color: var(--text); display: flex; align-items: center; gap: 8px; }
+
+  .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+  .form-group { display: flex; flex-direction: column; gap: 6px; }
+  .form-group label { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  .form-group input, .form-group select, .form-group textarea {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 9px 12px; color: var(--text); font-size: 14px; transition: border-color .2s; outline: none; }
+  .form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color: var(--accent); }
+  .form-group input.err, .form-group select.err, .form-group textarea.err { border-color: var(--red); }
+  .field-err { font-size: 11px; color: var(--red); margin-top: 2px; }
+  .form-group textarea { resize: vertical; min-height: 72px; }
+  select option { background: var(--surface2); }
+
+  .btn { padding: 9px 18px; border-radius: 8px; font-size: 13px; font-weight: 600;
+    border: none; cursor: pointer; transition: all .15s; display: inline-flex; align-items: center; gap: 6px; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: #3a7ae0; }
+  .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-danger { background: var(--red); color: #fff; }
+  .btn-danger:hover { background: #c0392b; }
+  .btn-success { background: var(--green); color: #fff; }
+  .btn-success:hover { background: #27ae60; }
+  .btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+  .btn-ghost:hover { color: var(--text); border-color: var(--text); }
+  .btn-sm { padding: 5px 12px; font-size: 12px; }
+  .btn-icon { padding: 6px 8px; border-radius: 6px; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 100;
+    display: flex; align-items: center; justify-content: center; padding: 20px; }
+  .dialog { background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    padding: 28px; width: 100%; max-width: 500px; max-height: 92vh; overflow-y: auto; }
+  .dialog-lg { max-width: 700px; }
+  .dialog-xl { max-width: 900px; }
+  .dialog-title { font-size: 18px; font-weight: 700; margin-bottom: 22px; }
+  .dialog-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 24px; flex-wrap: wrap; }
+
+  .rmr-box { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 16px; }
+  .rmr-item { text-align: center; }
+  .rmr-label { font-size: 11px; color: var(--muted); font-weight: 700; text-transform: uppercase; }
+  .rmr-value { font-size: 22px; font-weight: 800; color: var(--accent); margin-top: 2px; }
+  .rmr-value.avg { color: var(--green); font-size: 26px; }
+
+  .day-selector { display: flex; gap: 6px; flex-wrap: wrap; }
+  .day-chip { padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 700;
+    cursor: pointer; border: 1px solid var(--border); background: var(--surface2);
+    color: var(--muted); transition: all .2s; user-select: none; }
+  .day-chip.selected { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  .time-toggle { display: flex; gap: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .time-option { padding: 8px 18px; font-size: 13px; font-weight: 600; cursor: pointer;
+    background: var(--surface2); color: var(--muted); border: none; transition: all .2s; }
+  .time-option.active { background: var(--accent); color: #fff; }
+
+  .cal-nav { display: flex; align-items: center; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
+  .cal-nav-title { font-size: 18px; font-weight: 700; flex: 1; text-align: center; min-width: 200px; }
+  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+  .cal-dow { text-align: center; font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; padding: 8px 0; }
+  .cal-cell { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+    min-height: 88px; padding: 6px; cursor: pointer; transition: border-color .2s; position: relative; }
+  .cal-cell:hover { border-color: var(--accent); }
+  .cal-cell.other-month { opacity: .3; pointer-events: none; }
+  .cal-cell.today { border-color: var(--accent); }
+  .cal-cell.selected { border-color: var(--green); background: rgba(46,204,113,.06); }
+  .cal-date { font-size: 13px; font-weight: 700; margin-bottom: 4px; }
+  .cal-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; margin: 1px; }
+  .dot-steps { background: var(--orange); }
+  .dot-aerobic { background: var(--accent); }
+  .dot-event { background: var(--accent2); }
+  .dot-workout { background: var(--green); }
+  .cal-summary { font-size: 10px; color: var(--muted); line-height: 1.5; margin-top: 3px; }
+
+  .day-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-top: 16px; }
+  .event-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+  .event-item { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 14px; display: flex; justify-content: space-between; align-items: flex-start; cursor: pointer; transition: border-color .2s; }
+  .event-item:hover { border-color: var(--accent); }
+  .event-item-title { font-weight: 700; font-size: 13px; }
+  .event-item-time { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .event-item-desc { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  .macro-table { width: 100%; border-collapse: collapse; }
+  .macro-table th { text-align: left; padding: 10px 12px; font-size: 11px; font-weight: 700;
+    color: var(--muted); text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid var(--border); }
+  .macro-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 14px; }
+  .macro-table tr:last-child td { border-bottom: none; }
+  .macro-table tr:hover td { background: rgba(255,255,255,.02); }
+  .progress-bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; margin-top: 4px; }
+  .progress-fill { height: 100%; border-radius: 3px; transition: width .4s; }
+  .fill-ok { background: var(--green); }
+  .fill-warn { background: var(--orange); }
+  .fill-over { background: var(--red); }
+
+  .food-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
+  .food-card { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
+  .food-name { font-weight: 700; font-size: 14px; margin-bottom: 8px; }
+  .food-macros { display: flex; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .food-macro-pill { background: var(--surface); padding: 2px 8px; border-radius: 10px; border: 1px solid var(--border); }
+
+  .stats-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .stat-card { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
+  .stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; font-weight: 700; }
+  .stat-value { font-size: 22px; font-weight: 800; margin-top: 4px; }
+  .stat-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  /* Workout Plan */
+  .workout-week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; margin-bottom: 20px; }
+  .workout-day-col { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; min-height: 160px; }
+  .workout-day-header { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; margin-bottom: 8px; text-align: center; }
+  .workout-plan-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px; margin-bottom: 8px; cursor: pointer; transition: border-color .2s; }
+  .workout-plan-card:hover { border-color: var(--accent); }
+  .workout-plan-title { font-size: 13px; font-weight: 700; }
+  .workout-plan-muscles { font-size: 11px; color: var(--muted); margin-top: 3px; }
+
+  .exercise-row { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+  .exercise-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; justify-content: space-between; }
+  .exercise-name { font-weight: 700; font-size: 14px; }
+  .set-row { display: grid; grid-template-columns: 60px 1fr 1fr 1fr auto; gap: 8px; align-items: center; margin-bottom: 6px; }
+  .set-label { font-size: 11px; color: var(--muted); font-weight: 700; }
+  .set-type-badge { padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; }
+  .st-warm_up { background: rgba(241,196,15,.15); color: var(--yellow); }
+  .st-main { background: rgba(79,142,247,.15); color: var(--accent); }
+  .st-drop_set { background: rgba(231,76,60,.15); color: var(--red); }
+
+  /* Admin */
+  .admin-section { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; margin-bottom: 16px; }
+  .admin-section-title { font-size: 14px; font-weight: 700; margin-bottom: 14px; color: var(--text); }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .status-ok { background: var(--green); }
+  .status-err { background: var(--red); }
+
+  .flex { display: flex; }
+  .gap-8 { gap: 8px; }
+  .gap-12 { gap: 12px; }
+  .mb-12 { margin-bottom: 12px; }
+  .mb-16 { margin-bottom: 16px; }
+  .muted { color: var(--muted); }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; }
+  .badge-accent { background: rgba(79,142,247,.2); color: var(--accent); }
+  .badge-green { background: rgba(46,204,113,.2); color: var(--green); }
+  .badge-red { background: rgba(231,76,60,.2); color: var(--red); }
+  .badge-orange { background: rgba(243,156,18,.2); color: var(--orange); }
+  .divider { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
+  .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .toast { position: fixed; bottom: 24px; right: 24px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 18px; font-size: 13px; z-index: 200; display: flex; align-items: center;
+    gap: 10px; box-shadow: 0 8px 32px rgba(0,0,0,.4); animation: slideUp .25s ease; max-width: 340px; }
+  @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 8px; }
+  .section-title { font-size: 15px; font-weight: 700; }
+  .info-row { display: flex; gap: 24px; flex-wrap: wrap; background: var(--surface2);
+    border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 18px; margin-bottom: 20px; }
+  .info-item { display: flex; flex-direction: column; gap: 2px; }
+  .info-label { font-size: 11px; color: var(--muted); text-transform: uppercase; font-weight: 700; }
+  .info-val { font-size: 16px; font-weight: 700; }
+  .muscle-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+  .muscle-tag { padding: 3px 10px; border-radius: 10px; font-size: 11px; font-weight: 700;
+    background: rgba(79,142,247,.15); color: var(--accent); border: 1px solid rgba(79,142,247,.3); cursor: pointer; transition: all .2s; }
+  .muscle-tag.selected { background: var(--accent); color: #fff; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useCallback, useRef } = React;
+
+const API = "http://localhost:8000/api";
+async function api(method, path, body) {
+  const opts = { method, headers: { "Content-Type": "application/json" } };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(API + path, opts);
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({ detail: "Request failed" }));
+    throw new Error(err.detail || JSON.stringify(err));
+  }
+  return r.json();
+}
+const get = (p) => api("GET", p);
+const put = (p, b) => api("PUT", p, b);
+const post = (p, b) => api("POST", p, b);
+const del = (p) => api("DELETE", p);
+
+// ── Validation ────────────────────────────────────────────────────────────
+const rules = {
+  required: (v) => (!v && v !== 0) || v === "" ? "Required" : null,
+  numeric: (v) => v !== "" && v !== null && v !== undefined && isNaN(Number(v)) ? "Must be a number" : null,
+  positiveNum: (v) => { if (v === "" || v == null) return null; return Number(v) < 0 ? "Must be ≥ 0" : null; },
+  range: (min, max) => (v) => { if (v === "" || v == null) return null; const n = Number(v); return (n < min || n > max) ? `Must be ${min}–${max}` : null; },
+  maxLen: (n) => (v) => v && v.length > n ? `Max ${n} chars` : null,
+  email: (v) => { if (!v) return null; return v.includes("@") && v.includes(".") ? null : "Invalid email"; },
+};
+function validate(value, validators) {
+  for (const fn of validators) { const e = fn(value); if (e) return e; }
+  return null;
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────
+function Toast({ message, type, onClose }) {
+  useEffect(() => { const t = setTimeout(onClose, 3500); return () => clearTimeout(t); }, []);
+  const c = type === "success" ? "var(--green)" : type === "error" ? "var(--red)" : "var(--accent)";
+  return <div className="toast"><span style={{ color:c, fontWeight:800, fontSize:16 }}>{type==="success"?"✓":type==="error"?"✕":"ℹ"}</span>{message}</div>;
+}
+function useToast() {
+  const [t, setT] = useState(null);
+  const show = (message, type="info") => setT({ message, type, key: Date.now() });
+  const Toaster = t ? <Toast key={t.key} message={t.message} type={t.type} onClose={() => setT(null)}/> : null;
+  return { show, Toaster };
+}
+
+// ── FormField ─────────────────────────────────────────────────────────────
+function FF({ label, error, children, full }) {
+  return (
+    <div className="form-group" style={full ? { gridColumn:"1/-1" } : {}}>
+      {label && <label>{label}</label>}
+      {children}
+      {error && <span className="field-err">{error}</span>}
+    </div>
+  );
+}
+
+// ── Version Dialog ────────────────────────────────────────────────────────
+function VersionDialog({ current, onSave, onClose }) {
+  const [f, setF] = useState({ major: current.major, minor: current.minor, tiny: current.tiny, notes: current.notes||"" });
+  const [e, setE] = useState({});
+  function validate_() {
+    const err = {};
+    ["major","minor","tiny"].forEach(k => { err[k] = validate(f[k], [rules.required, rules.numeric, rules.range(0,999)]); });
+    err.notes = validate(f.notes, [rules.maxLen(200)]);
+    setE(err); return Object.values(err).every(v=>!v);
+  }
+  async function save() { if (!validate_()) return; await onSave({major:+f.major,minor:+f.minor,tiny:+f.tiny,notes:f.notes}); onClose(); }
+  return (
+    <div className="overlay"><div className="dialog">
+      <div className="dialog-title">🏷 Set Version</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:14}}>
+        {["major","minor","tiny"].map(k=>(
+          <FF key={k} label={k.charAt(0).toUpperCase()+k.slice(1)} error={e[k]}>
+            <input type="number" min="0" max="999" className={e[k]?"err":""} value={f[k]} onChange={ev=>setF(p=>({...p,[k]:ev.target.value}))}/>
+          </FF>
+        ))}
+      </div>
+      <FF label="Release Notes" error={e.notes}>
+        <textarea rows={3} value={f.notes} onChange={ev=>setF(p=>({...p,notes:ev.target.value}))} placeholder="What changed…" maxLength={200}/>
+      </FF>
+      <div className="dialog-actions">
+        <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" onClick={save}>Save Version</button>
+      </div>
+    </div></div>
+  );
+}
+
+// ── Program Details Dialog ────────────────────────────────────────────────
+function ProgramDialog({ data, onSave, onClose }) {
+  const [f, setF] = useState({ start_date:data.start_date||"", end_date:data.end_date||"", payment_processed:data.payment_processed||false });
+  const [e, setE] = useState({});
+  function validate_() {
+    const err = {};
+    if (!f.start_date) err.start_date = "Required";
+    if (!f.end_date) err.end_date = "Required";
+    if (f.start_date && f.end_date && f.start_date > f.end_date) err.end_date = "Must be after start date";
+    setE(err); return Object.values(err).every(v=>!v);
+  }
+  async function save() { if (!validate_()) return; await onSave(f); onClose(); }
+  return (
+    <div className="overlay"><div className="dialog">
+      <div className="dialog-title">📋 Program Details</div>
+      <div className="form-grid" style={{marginBottom:16}}>
+        <FF label="Start Date" error={e.start_date}><input type="date" className={e.start_date?"err":""} value={f.start_date} onChange={ev=>setF(p=>({...p,start_date:ev.target.value}))}/></FF>
+        <FF label="End Date" error={e.end_date}><input type="date" className={e.end_date?"err":""} value={f.end_date} onChange={ev=>setF(p=>({...p,end_date:ev.target.value}))}/></FF>
+      </div>
+      <FF label="Payment Processed">
+        <div style={{display:"flex",gap:10,alignItems:"center"}}>
+          <div className="time-toggle">
+            <button className={"time-option"+(f.payment_processed?" active":"")} onClick={()=>setF(p=>({...p,payment_processed:true}))}>Yes</button>
+            <button className={"time-option"+(!f.payment_processed?" active":"")} onClick={()=>setF(p=>({...p,payment_processed:false}))}>No</button>
+          </div>
+          <span className={`badge ${f.payment_processed?"badge-green":"badge-red"}`}>{f.payment_processed?"Processed":"Pending"}</span>
+        </div>
+      </FF>
+      <div className="dialog-actions">
+        <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" onClick={save}>Save</button>
+      </div>
+    </div></div>
+  );
+}
+
+// ── Daily Calories Dialog ─────────────────────────────────────────────────
+function DailyCaloriesDialog({ athlete, activityCals, onUpdateActivityCal, onClose }) {
+  const level = athlete.activity_level || 1;
+  const rmr = athlete.average || 0;
+  const actCal = activityCals.find(a => a.level === level)?.additional_calories || 0;
+  const deficit = athlete.deficit || 0;
+  const total = Math.max(0, rmr + actCal - deficit);
+  const [editCals, setEditCals] = useState(activityCals.reduce((acc,a)=>({...acc,[a.level]:a.additional_calories}),{}));
+  const [errors, setErrors] = useState({});
+  const [saving, setSaving] = useState(null);
+  const phaseColors = {cut:"badge-red",bulk:"badge-green",maintain:"badge-accent",prep:"badge-orange"};
+  async function saveLevel(lv) {
+    const err = validate(editCals[lv], [rules.required, rules.numeric, rules.range(0,5000)]);
+    if (err) { setErrors(p=>({...p,[lv]:err})); return; }
+    setSaving(lv); await onUpdateActivityCal(lv, Number(editCals[lv])); setSaving(null);
+  }
+  return (
+    <div className="overlay"><div className="dialog dialog-lg">
+      <div className="dialog-title">🔥 Daily Calorie Breakdown</div>
+      <div className="stats-row">
+        {[["RMR (avg)", rmr.toFixed(0), "kcal/day","var(--accent)"],
+          ["Activity Cal", `+${actCal.toFixed(0)}`, `Level ${level}`,"var(--orange)"],
+          ["Deficit", `-${deficit.toFixed(0)}`, "kcal","var(--red)"],
+          ["Total Intake", total.toFixed(0), `Phase: ${athlete.phase}`,"var(--green)"]].map(([lbl,val,sub,color])=>(
+          <div key={lbl} className="stat-card">
+            <div className="stat-label">{lbl}</div>
+            <div className="stat-value" style={{color}}>{val}</div>
+            <div className="stat-sub">{sub} {lbl==="Total Intake" && <span className={`badge ${phaseColors[athlete.phase]||"badge-accent"}`}>{athlete.phase}</span>}</div>
+          </div>
+        ))}
+      </div>
+      <hr className="divider"/>
+      <div className="section-title" style={{marginBottom:12}}>Activity Level Additional Calories</div>
+      {[1,2,3,4,5].map(lv=>(
+        <div key={lv} style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+          <span style={{width:80,fontWeight:700,color:lv===level?"var(--accent)":"var(--muted)"}}>Level {lv} {lv===level?"★":""}</span>
+          <div style={{flex:1}}>
+            <input type="number" min="0" max="5000" className={errors[lv]?"err":""}
+              style={{width:"100%",background:"var(--surface2)",border:`1px solid ${errors[lv]?"var(--red)":"var(--border)"}`,borderRadius:8,padding:"8px 12px",color:"var(--text)",fontSize:14}}
+              value={editCals[lv]??0} onChange={ev=>{setErrors(p=>({...p,[lv]:null}));setEditCals(p=>({...p,[lv]:ev.target.value}));}}/>
+            {errors[lv] && <span className="field-err">{errors[lv]}</span>}
+          </div>
+          <button className="btn btn-sm btn-secondary" onClick={()=>saveLevel(lv)} disabled={saving===lv}>
+            {saving===lv?<span className="spinner"/>:"Save"}
+          </button>
+        </div>
+      ))}
+      <div className="dialog-actions"><button className="btn btn-primary" onClick={onClose}>Close</button></div>
+    </div></div>
+  );
+}
+
+// ── Athlete Settings ──────────────────────────────────────────────────────
+function AthleteSettings({ toast }) {
+  const [data, setData] = useState(null);
+  const [form, setForm] = useState({});
+  const [errors, setErrors] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [showProg, setShowProg] = useState(false);
+  const [showCals, setShowCals] = useState(false);
+  const [prog, setProg] = useState({});
+  const [actCals, setActCals] = useState([]);
+  const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+
+  useEffect(()=>{ loadAll(); },[]);
+
+  async function loadAll() {
+    const [ath, p, ac] = await Promise.all([get("/athlete"), get("/program"), get("/activity-calories")]);
+    setData(ath); setProg(p); setActCals(ac);
+    setForm({ name:ath.name||"", email:ath.email||"", birthdate:ath.birthdate||"", height_cm:ath.height_cm||175, weight_kg:ath.weight_kg||75,
+      body_fat_pct:ath.body_fat_pct||0, sex:ath.sex||"male", activity_level:ath.activity_level||1,
+      workout_days_per_week:ath.workout_days_per_week||3, workout_days:ath.workout_days||[],
+      workout_time:ath.workout_time||"AM", phase:ath.phase||"maintain", deficit:ath.deficit||0 });
+  }
+
+  const sf = (k,v) => { setErrors(p=>({...p,[k]:null})); setForm(p=>({...p,[k]:v})); };
+
+  function validateForm() {
+    const e = {};
+    e.name = validate(form.name, [rules.required, rules.maxLen(100)]);
+    e.email = validate(form.email, [rules.email, rules.maxLen(200)]);
+    e.birthdate = validate(form.birthdate, [rules.required]);
+    e.height_cm = validate(form.height_cm, [rules.required, rules.numeric, rules.range(50,300)]);
+    e.weight_kg = validate(form.weight_kg, [rules.required, rules.numeric, rules.range(10,500)]);
+    e.body_fat_pct = validate(form.body_fat_pct, [rules.numeric, rules.range(0,70)]);
+    e.deficit = validate(form.deficit, [rules.numeric, rules.range(0,2000)]);
+    setErrors(e); return Object.values(e).every(v=>!v);
+  }
+
+  async function handleSave() {
+    if (!validateForm()) { toast.show("Please fix validation errors","error"); return; }
+    setSaving(true);
+    try {
+      const payload = {...form, height_cm:+form.height_cm, weight_kg:+form.weight_kg, body_fat_pct:+form.body_fat_pct,
+        activity_level:+form.activity_level, workout_days_per_week:+form.workout_days_per_week, deficit:+form.deficit};
+      const updated = await put("/athlete", payload);
+      setData(updated); toast.show("Athlete settings saved","success");
+    } catch(err) { toast.show(err.message,"error"); }
+    setSaving(false);
+  }
+
+  function toggleDay(d) { const days=form.workout_days||[]; sf("workout_days", days.includes(d)?days.filter(x=>x!==d):[...days,d]); }
+  async function updateActivityCal(level,cal) { try { const u=await put(`/activity-calories/${level}`,{additional_calories:cal}); setActCals(u); toast.show(`Level ${level} calories updated`,"success"); } catch(err) { toast.show(err.message,"error"); } }
+
+  const rmr = data||{};
+  const actCal = actCals.find(a=>a.level===(form.activity_level||1))?.additional_calories||0;
+  const totalCal = Math.max(0,(rmr.average||0)+actCal-(+form.deficit||0));
+  const phaseColors = {cut:"badge-red",bulk:"badge-green",maintain:"badge-accent",prep:"badge-orange"};
+
+  if (!data) return <div style={{padding:40,textAlign:"center"}}><div className="spinner"/></div>;
+  return (
+    <div>
+      <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginBottom:16,flexWrap:"wrap"}}>
+        <button className="btn btn-secondary" onClick={()=>setShowProg(true)}>📋 Program Details</button>
+        <button className="btn btn-secondary" onClick={()=>setShowCals(true)}>🔥 Daily Calories</button>
+      </div>
+
+      {/* Calorie banner */}
+      <div className="card" style={{background:"linear-gradient(135deg,rgba(79,142,247,.08),rgba(124,92,191,.08))",borderColor:"var(--accent)"}}>
+        <div style={{display:"flex",alignItems:"center",flexWrap:"wrap",gap:24}}>
+          <div>
+            <div style={{fontSize:11,color:"var(--muted)",textTransform:"uppercase",fontWeight:700}}>Total Daily Calories</div>
+            <div style={{fontSize:38,fontWeight:900,color:"var(--green)"}}>{totalCal.toFixed(0)} <span style={{fontSize:16,color:"var(--muted)"}}>kcal</span></div>
+          </div>
+          <div style={{flex:1,display:"flex",gap:20,flexWrap:"wrap"}}>
+            {[["RMR",(rmr.average||0).toFixed(0),"var(--accent)"],["+ Activity",`+${actCal.toFixed(0)}`,"var(--orange)"],["- Deficit",`-${(+form.deficit||0).toFixed(0)}`,"var(--red)"]].map(([l,v,c])=>(
+              <div key={l}><div className="stat-label">{l}</div><div style={{fontWeight:700,color:c,fontSize:18}}>{v}</div></div>
+            ))}
+            <div><div className="stat-label">Phase</div><span className={`badge ${phaseColors[form.phase]||"badge-accent"}`} style={{fontSize:13}}>{form.phase}</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-title">👤 Personal Information</div>
+        <div className="form-grid">
+          <FF label="Full Name *" error={errors.name}><input value={form.name} className={errors.name?"err":""} maxLength={100} onChange={e=>sf("name",e.target.value)} placeholder="Athlete name"/></FF>
+          <FF label="Email Address" error={errors.email}><input type="email" value={form.email} className={errors.email?"err":""} maxLength={200} onChange={e=>sf("email",e.target.value)} placeholder="athlete@email.com"/></FF>
+          <FF label="Date of Birth *" error={errors.birthdate}><input type="date" value={form.birthdate} className={errors.birthdate?"err":""} onChange={e=>sf("birthdate",e.target.value)}/></FF>
+          <FF label="Sex">
+            <div className="time-toggle">
+              <button className={"time-option"+(form.sex==="male"?" active":"")} onClick={()=>sf("sex","male")}>Male</button>
+              <button className={"time-option"+(form.sex==="female"?" active":"")} onClick={()=>sf("sex","female")}>Female</button>
+            </div>
+          </FF>
+          <FF label="Height (cm) *" error={errors.height_cm}><input type="number" min="50" max="300" value={form.height_cm} className={errors.height_cm?"err":""} onChange={e=>sf("height_cm",e.target.value)} placeholder="178"/></FF>
+          <FF label="Weight (kg) *" error={errors.weight_kg}><input type="number" min="10" max="500" step="0.1" value={form.weight_kg} className={errors.weight_kg?"err":""} onChange={e=>sf("weight_kg",e.target.value)} placeholder="82.5"/></FF>
+          <FF label="Body Fat % (optional)" error={errors.body_fat_pct}><input type="number" min="0" max="70" step="0.1" value={form.body_fat_pct} className={errors.body_fat_pct?"err":""} onChange={e=>sf("body_fat_pct",e.target.value)} placeholder="Used in Katch-McArdle"/></FF>
+          <FF label="Age (calculated)"><input readOnly value={data.age||"—"} style={{opacity:.6}}/></FF>
+          <FF label="LBM (kg)"><input readOnly value={data.lbm_kg?data.lbm_kg.toFixed(1):"—"} style={{opacity:.6}}/></FF>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-title">🧮 Resting Metabolic Rate</div>
+        <div className="rmr-box">
+          {[["Mifflin-St Jeor",rmr.mifflin||0,false],["Harris-Benedict",rmr.harris||0,false],["Katch-McArdle",rmr.katch||0,false],["Average (used)",rmr.average||0,true]].map(([lbl,val,isAvg])=>(
+            <div key={lbl} className="rmr-item">
+              <div className="rmr-label">{lbl}</div>
+              <div className={`rmr-value${isAvg?" avg":""}`}>{(val||0).toFixed(0)}</div>
+              <div style={{fontSize:11,color:"var(--muted)"}}>kcal/day</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-title">🏋️ Training Settings</div>
+        <div className="form-grid" style={{marginBottom:18}}>
+          <FF label="Activity Level (1–5)">
+            <div style={{display:"flex",gap:6}}>
+              {[1,2,3,4,5].map(n=>(
+                <button key={n} onClick={()=>sf("activity_level",n)}
+                  style={{flex:1,padding:"8px 0",borderRadius:8,fontWeight:700,border:"none",cursor:"pointer",
+                    background:form.activity_level===n?"var(--accent)":"var(--surface2)",
+                    color:form.activity_level===n?"#fff":"var(--muted)"}}>{n}</button>
+              ))}
+            </div>
+          </FF>
+          <FF label="Workout Days / Week"><input type="number" min="0" max="7" value={form.workout_days_per_week} onChange={e=>sf("workout_days_per_week",e.target.value)}/></FF>
+          <FF label="Workout Time">
+            <div className="time-toggle">
+              <button className={"time-option"+(form.workout_time==="AM"?" active":"")} onClick={()=>sf("workout_time","AM")}>AM</button>
+              <button className={"time-option"+(form.workout_time==="PM"?" active":"")} onClick={()=>sf("workout_time","PM")}>PM</button>
+            </div>
+          </FF>
+        </div>
+        <FF label="Available Workout Days">
+          <div className="day-selector">
+            {DAYS.map(d=><span key={d} className={"day-chip"+((form.workout_days||[]).includes(d)?" selected":"")} onClick={()=>toggleDay(d)}>{d}</span>)}
+          </div>
+        </FF>
+      </div>
+
+      <div className="card">
+        <div className="card-title">⚖️ Goal Settings</div>
+        <div className="form-grid">
+          <FF label="Phase">
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {["cut","bulk","maintain","prep"].map(p=>(
+                <button key={p} onClick={()=>sf("phase",p)}
+                  style={{padding:"8px 16px",borderRadius:8,fontWeight:700,border:"none",cursor:"pointer",textTransform:"capitalize",
+                    background:form.phase===p?{cut:"var(--red)",bulk:"var(--green)",maintain:"var(--accent)",prep:"var(--orange)"}[p]:"var(--surface2)",
+                    color:form.phase===p?"#fff":"var(--muted)"}}>{p}</button>
+              ))}
+            </div>
+          </FF>
+          <FF label="Daily Caloric Deficit (kcal)" error={errors.deficit}>
+            <input type="number" min="0" max="2000" value={form.deficit} className={errors.deficit?"err":""} onChange={e=>sf("deficit",e.target.value)} placeholder="e.g. 300"/>
+          </FF>
+        </div>
+      </div>
+
+      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:32}}>
+        <button className="btn btn-primary" onClick={handleSave} disabled={saving} style={{minWidth:140}}>
+          {saving?<><span className="spinner"/> Saving…</>:"💾 Save Settings"}
+        </button>
+      </div>
+
+      {showProg && <ProgramDialog data={prog} onClose={()=>setShowProg(false)} onSave={async b=>{const p=await put("/program",b);setProg(p);toast.show("Program details saved","success");}}/>}
+      {showCals && <DailyCaloriesDialog athlete={{...data,...form,average:rmr.average}} activityCals={actCals} onUpdateActivityCal={updateActivityCal} onClose={()=>{setShowCals(false);loadAll();}}/>}
+    </div>
+  );
+}
+
+// ── Event Dialog ──────────────────────────────────────────────────────────
+function EventDialog({ event, date, onSave, onDelete, onClose }) {
+  const isNew = !event;
+  const [f, setF] = useState({ title:event?.title||"", description:event?.description||"", event_time:event?.event_time||"", date:date });
+  const [e, setE] = useState({});
+  function validate_() {
+    const err = {};
+    err.title = validate(f.title, [rules.required, rules.maxLen(100)]);
+    err.description = validate(f.description, [rules.maxLen(500)]);
+    setE(err); return Object.values(err).every(v=>!v);
+  }
+  async function save() { if (!validate_()) return; await onSave({...f}); onClose(); }
+  return (
+    <div className="overlay"><div className="dialog">
+      <div className="dialog-title">{isNew?"➕ New Event":"✏️ Edit Event"}</div>
+      <FF label="Title *" error={e.title}><input value={f.title} className={e.title?"err":""} maxLength={100} onChange={ev=>{setE(p=>({...p,title:null}));setF(p=>({...p,title:ev.target.value}));}} placeholder="Event title"/></FF>
+      <div style={{height:12}}/>
+      <FF label="Time"><input type="time" value={f.event_time} onChange={ev=>setF(p=>({...p,event_time:ev.target.value}))}/></FF>
+      <div style={{height:12}}/>
+      <FF label="Description" error={e.description}><textarea rows={3} value={f.description} className={e.description?"err":""} maxLength={500} onChange={ev=>{setE(p=>({...p,description:null}));setF(p=>({...p,description:ev.target.value}));}} placeholder="Optional notes…"/></FF>
+      <div className="dialog-actions">
+        {!isNew && <button className="btn btn-danger btn-sm" onClick={()=>{onDelete(event.id);onClose();}}>Delete</button>}
+        <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" onClick={save}>Save Event</button>
+      </div>
+    </div></div>
+  );
+}
+
+// ── Day Panel ─────────────────────────────────────────────────────────────
+function DayPanel({ dateStr, onClose, toast }) {
+  const [dayData, setDayData] = useState(null);
+  const [events, setEvents] = useState([]);
+  const [form, setForm] = useState({ steps:0, aerobic_type:"", aerobic_duration:0, workout_notes:"" });
+  const [errors, setErrors] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [showEv, setShowEv] = useState(false);
+  const [editEv, setEditEv] = useState(null);
+  const AEROBIC = ["","Running","Cycling","Swimming","Rowing","Walking","Jump Rope","Elliptical","Stair Climber","HIIT","Other"];
+
+  useEffect(()=>{ loadDay(); },[dateStr]);
+  async function loadDay() { const d=await get(`/calendar/day/${dateStr}`); setDayData(d.day); setEvents(d.events); setForm({steps:d.day.steps||0,aerobic_type:d.day.aerobic_type||"",aerobic_duration:d.day.aerobic_duration||0,workout_notes:d.day.workout_notes||""}); }
+  const sf=(k,v)=>{ setErrors(p=>({...p,[k]:null})); setForm(p=>({...p,[k]:v})); };
+  function validate_() {
+    const e={};
+    e.steps=validate(form.steps,[rules.numeric,rules.range(0,100000)]);
+    e.aerobic_duration=validate(form.aerobic_duration,[rules.numeric,rules.range(0,600)]);
+    e.workout_notes=validate(form.workout_notes,[rules.maxLen(1000)]);
+    setErrors(e); return Object.values(e).every(v=>!v);
+  }
+  async function handleSave() { if (!validate_()) return; setSaving(true); try { await put(`/calendar/day/${dateStr}`,{steps:+form.steps,aerobic_type:form.aerobic_type,aerobic_duration:+form.aerobic_duration,workout_notes:form.workout_notes}); toast.show("Day saved","success"); } catch(err){toast.show(err.message,"error");} setSaving(false); }
+  async function saveEvent(body) { try { if(editEv){const u=await put(`/calendar/events/${editEv.id}`,{...body,date:dateStr});setEvents(ev=>ev.map(e=>e.id===u.id?u:e));toast.show("Event updated","success");}else{const c=await post("/calendar/events",{...body,date:dateStr});setEvents(ev=>[...ev,c]);toast.show("Event created","success");} } catch(err){toast.show(err.message,"error");} }
+  async function deleteEvent(id) { await del(`/calendar/events/${id}`); setEvents(ev=>ev.filter(e=>e.id!==id)); toast.show("Event deleted","success"); }
+  const label = new Date(dateStr+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"});
+  return (
+    <div className="day-panel">
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+        <div style={{fontWeight:700,fontSize:15}}>📅 {label}</div>
+        <button className="btn btn-ghost btn-sm" onClick={onClose}>✕ Close</button>
+      </div>
+      <div className="form-grid">
+        <FF label="Steps Today" error={errors.steps}><input type="number" min="0" max="100000" value={form.steps} className={errors.steps?"err":""} onChange={e=>sf("steps",e.target.value)}/></FF>
+        <FF label="Aerobic Type"><select value={form.aerobic_type} onChange={e=>sf("aerobic_type",e.target.value)}>{AEROBIC.map(t=><option key={t} value={t}>{t||"—"}</option>)}</select></FF>
+        <FF label="Duration (min)" error={errors.aerobic_duration}><input type="number" min="0" max="600" value={form.aerobic_duration} className={errors.aerobic_duration?"err":""} onChange={e=>sf("aerobic_duration",e.target.value)}/></FF>
+      </div>
+      <FF label="Workout Notes" error={errors.workout_notes}><textarea rows={3} value={form.workout_notes} className={errors.workout_notes?"err":""} onChange={e=>sf("workout_notes",e.target.value)} placeholder="e.g. Squat 5×5 @ 100kg…" maxLength={1000}/></FF>
+      <div style={{display:"flex",justifyContent:"flex-end",margin:"8px 0 16px"}}><button className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving}>{saving?<span className="spinner"/>:"Save Day"}</button></div>
+      <hr className="divider"/>
+      <div className="section-header">
+        <div className="section-title">Events ({events.length})</div>
+        <button className="btn btn-secondary btn-sm" onClick={()=>{setEditEv(null);setShowEv(true);}}>+ Add Event</button>
+      </div>
+      <div className="event-list">
+        {events.length===0 && <div style={{color:"var(--muted)",fontSize:13}}>No events for this day.</div>}
+        {events.map(ev=>(
+          <div key={ev.id} className="event-item" onClick={()=>{setEditEv(ev);setShowEv(true);}}>
+            <div><div className="event-item-title">{ev.title}</div>{ev.event_time&&<div className="event-item-time">⏰ {ev.event_time}</div>}{ev.description&&<div className="event-item-desc">{ev.description}</div>}</div>
+            <button className="btn btn-ghost btn-icon btn-sm" onClick={e=>{e.stopPropagation();deleteEvent(ev.id);}}>✕</button>
+          </div>
+        ))}
+      </div>
+      {showEv && <EventDialog event={editEv} date={dateStr} onSave={saveEvent} onDelete={deleteEvent} onClose={()=>{setShowEv(false);setEditEv(null);}}/>}
+    </div>
+  );
+}
+
+// ── Calendar Tab ──────────────────────────────────────────────────────────
+function CalendarTab({ toast }) {
+  const today = new Date();
+  const [view, setView] = useState({ year:today.getFullYear(), month:today.getMonth()+1 });
+  const [monthData, setMonthData] = useState({ days:{}, events:[] });
+  const [selected, setSelected] = useState(null);
+  useEffect(()=>{ loadMonth(); },[view]);
+  async function loadMonth() { try { const d=await get(`/calendar/month?year=${view.year}&month=${view.month}`); setMonthData(d); } catch(e){console.error(e);} }
+  function nav(unit, dir) {
+    setView(prev=>{
+      let {year,month}=prev;
+      if(unit==="month"){month+=dir;if(month>12){month=1;year++;}if(month<1){month=12;year--;}}
+      else if(unit==="year"){year+=dir;}
+      else if(unit==="week"){const d=new Date(year,month-1,1);d.setDate(d.getDate()+dir*7);year=d.getFullYear();month=d.getMonth()+1;}
+      return {year,month};
+    }); setSelected(null);
+  }
+  function fmtDate(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;}
+  function buildDays() {
+    const {year,month}=view;
+    const first=new Date(year,month-1,1); const last=new Date(year,month,0);
+    const startDow=(first.getDay()+6)%7; const days=[];
+    for(let i=0;i<startDow;i++){const d=new Date(year,month-1,-startDow+i+1);days.push({date:fmtDate(d),inMonth:false});}
+    for(let i=1;i<=last.getDate();i++) days.push({date:`${year}-${String(month).padStart(2,"0")}-${String(i).padStart(2,"0")}`,inMonth:true});
+    while(days.length%7!==0){const d=new Date(year,month,days.length-startDow-last.getDate()+1);days.push({date:fmtDate(d),inMonth:false});}
+    return days;
+  }
+  const todayStr=fmtDate(today);
+  const DOW=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+  const MONTHS=["January","February","March","April","May","June","July","August","September","October","November","December"];
+  const evByDate={}; monthData.events.forEach(e=>{if(!evByDate[e.date])evByDate[e.date]=[];evByDate[e.date].push(e);});
+  return (
+    <div>
+      <div className="cal-nav">
+        <button className="btn btn-ghost btn-sm" onClick={()=>nav("year",-1)}>«</button>
+        <button className="btn btn-ghost btn-sm" onClick={()=>nav("month",-1)}>‹</button>
+        <button className="btn btn-ghost btn-sm" onClick={()=>nav("week",-1)}>–wk</button>
+        <div className="cal-nav-title">{MONTHS[view.month-1]} {view.year}</div>
+        <button className="btn btn-ghost btn-sm" onClick={()=>nav("week",1)}>wk+</button>
+        <button className="btn btn-ghost btn-sm" onClick={()=>nav("month",1)}>›</button>
+        <button className="btn btn-ghost btn-sm" onClick={()=>nav("year",1)}>»</button>
+        <button className="btn btn-secondary btn-sm" onClick={()=>{setView({year:today.getFullYear(),month:today.getMonth()+1});setSelected(null);}}>Today</button>
+      </div>
+      <div className="cal-grid">
+        {DOW.map(d=><div key={d} className="cal-dow">{d}</div>)}
+        {buildDays().map(({date,inMonth})=>{
+          const di=monthData.days[date]||{}; const evs=evByDate[date]||[];
+          const isToday=date===todayStr; const isSel=date===selected;
+          return (
+            <div key={date} className={"cal-cell"+(!inMonth?" other-month":"")+(isToday?" today":"")+(isSel?" selected":"")}
+              onClick={()=>inMonth&&setSelected(date===selected?null:date)}>
+              <div className="cal-date" style={{color:isToday?"var(--accent)":undefined}}>{parseInt(date.split("-")[2])}</div>
+              <div>
+                {di.steps>0&&<span className="cal-dot dot-steps"/>}
+                {di.aerobic_type&&<span className="cal-dot dot-aerobic"/>}
+                {di.workout_notes&&<span className="cal-dot dot-workout"/>}
+                {evs.length>0&&<span className="cal-dot dot-event"/>}
+              </div>
+              {(di.steps>0||di.aerobic_type||evs.length>0)&&(
+                <div className="cal-summary">
+                  {di.steps>0&&<div>{(di.steps/1000).toFixed(1)}k steps</div>}
+                  {di.aerobic_type&&<div>{di.aerobic_type} {di.aerobic_duration}m</div>}
+                  {evs.length>0&&<div>{evs.length} event{evs.length>1?"s":""}</div>}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div style={{display:"flex",gap:16,marginTop:12,flexWrap:"wrap"}}>
+        {[["dot-steps","Steps"],["dot-aerobic","Aerobic"],["dot-workout","Workout"],["dot-event","Event"]].map(([cls,lbl])=>(
+          <div key={cls} style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:"var(--muted)"}}><span className={`cal-dot ${cls}`}/>{lbl}</div>
+        ))}
+      </div>
+      {selected && <DayPanel key={selected} dateStr={selected} onClose={()=>{setSelected(null);loadMonth();}} toast={toast}/>}
+    </div>
+  );
+}
+
+// ── Meal Plan Tab ─────────────────────────────────────────────────────────
+function MealPlanTab({ toast }) {
+  const [data, setData] = useState(null);
+  const [form, setForm] = useState({});
+  const [errors, setErrors] = useState({});
+  const [saving, setSaving] = useState(false);
+  const MACROS = [
+    {key:"protein",label:"Protein",unit:"g"},
+    {key:"carbs",label:"Carbohydrates",unit:"g"},
+    {key:"fat",label:"Fat",unit:"g"},
+    {key:"fiber",label:"Fiber",unit:"g"},
+    {key:"sodium",label:"Sodium",unit:"mg"},
+    {key:"potassium",label:"Potassium",unit:"mg"},
+  ];
+  useEffect(()=>{ loadData(); },[]);
+  async function loadData() { const d=await get("/meal-plan"); setData(d); const f={}; MACROS.forEach(m=>{f[`${m.key}_target`]=d[`${m.key}_target`];f[`${m.key}_actual`]=d[`${m.key}_actual`];}); setForm(f); }
+  const sf=(k,v)=>{ setErrors(p=>({...p,[k]:null})); setForm(p=>({...p,[k]:v})); };
+  function validate_() {
+    const e={}; MACROS.forEach(m=>{e[`${m.key}_target`]=validate(form[`${m.key}_target`],[rules.numeric,rules.positiveNum]);e[`${m.key}_actual`]=validate(form[`${m.key}_actual`],[rules.numeric,rules.positiveNum]);}); setErrors(e); return Object.values(e).every(v=>!v);
+  }
+  async function handleSave() {
+    if (!validate_()) { toast.show("Please fix validation errors","error"); return; }
+    setSaving(true);
+    try { const payload={}; MACROS.forEach(m=>{payload[`${m.key}_target`]=+form[`${m.key}_target`];payload[`${m.key}_actual`]=+form[`${m.key}_actual`];}); const u=await put("/meal-plan",payload); setData(u); toast.show("Meal plan saved","success"); } catch(err){toast.show(err.message,"error");}
+    setSaving(false);
+  }
+  if (!data) return <div style={{padding:40,textAlign:"center"}}><div className="spinner"/></div>;
+  const totalCals=(+form.protein_actual||0)*4+(+form.carbs_actual||0)*4+(+form.fat_actual||0)*9;
+  const targetCals=(+form.protein_target||0)*4+(+form.carbs_target||0)*4+(+form.fat_target||0)*9;
+  const fillClass=(pct)=>pct>110?"fill-over":pct>=90?"fill-ok":"fill-warn";
+  return (
+    <div>
+      <div className="info-row">
+        {[["Athlete",data.name||"—","var(--text)"],["RMR",`${(data.rmr||0).toFixed(0)} kcal`,"var(--accent)"],
+          ["Daily Calorie Target",`${(data.daily_calorie_intake||0).toFixed(0)} kcal`,"var(--green)"],
+          ["Logged Calories",`${totalCals.toFixed(0)} kcal`,totalCals>data.daily_calorie_intake?"var(--red)":"var(--orange)"],
+          ["Remaining",`${Math.max(0,data.daily_calorie_intake-totalCals).toFixed(0)} kcal`,totalCals>data.daily_calorie_intake?"var(--red)":"var(--green)"]].map(([l,v,c])=>(
+          <div key={l} className="info-item"><div className="info-label">{l}</div><div className="info-val" style={{color:c}}>{v}</div></div>
+        ))}
+      </div>
+      <div className="card">
+        <div className="card-title">📊 Macros Overview</div>
+        <table className="macro-table">
+          <thead><tr><th>Nutrient</th><th>Target</th><th>Actual</th><th>% of Target</th><th>Progress</th></tr></thead>
+          <tbody>
+            {MACROS.map(m=>{
+              const target=+form[`${m.key}_target`]||0; const actual=+form[`${m.key}_actual`]||0;
+              const pctReal=target>0?Math.round((actual/target)*100):0; const pct=Math.min(120,pctReal);
+              return (
+                <tr key={m.key}>
+                  <td><b>{m.label}</b></td>
+                  <td>
+                    <input type="number" min="0" value={form[`${m.key}_target`]??""} className={errors[`${m.key}_target`]?"err":""}
+                      onChange={e=>sf(`${m.key}_target`,e.target.value)}
+                      style={{width:85,background:"var(--surface2)",border:`1px solid ${errors[`${m.key}_target`]?"var(--red)":"var(--border)"}`,borderRadius:6,padding:"5px 8px",color:"var(--text)",fontSize:13}}/>
+                    {" "}{m.unit}{errors[`${m.key}_target`]&&<div className="field-err">{errors[`${m.key}_target`]}</div>}
+                  </td>
+                  <td>
+                    <input type="number" min="0" value={form[`${m.key}_actual`]??""} className={errors[`${m.key}_actual`]?"err":""}
+                      onChange={e=>sf(`${m.key}_actual`,e.target.value)}
+                      style={{width:85,background:"var(--surface2)",border:`1px solid ${errors[`${m.key}_actual`]?"var(--red)":"var(--border)"}`,borderRadius:6,padding:"5px 8px",color:"var(--text)",fontSize:13}}/>
+                    {" "}{m.unit}{errors[`${m.key}_actual`]&&<div className="field-err">{errors[`${m.key}_actual`]}</div>}
+                  </td>
+                  <td><span style={{color:pctReal>110?"var(--red)":pctReal>=90?"var(--green)":"var(--orange)",fontWeight:700}}>{pctReal}%</span></td>
+                  <td style={{width:120}}><div className="progress-bar"><div className={`progress-fill ${fillClass(pctReal)}`} style={{width:`${pct}%`}}/></div></td>
+                </tr>
+              );
+            })}
+            <tr style={{background:"rgba(79,142,247,.04)"}}>
+              <td><b>Calories</b></td>
+              <td><b>{targetCals.toFixed(0)} kcal</b></td>
+              <td><b>{totalCals.toFixed(0)} kcal</b></td>
+              <td><span style={{color:totalCals>targetCals*1.1?"var(--red)":totalCals>=targetCals*0.9?"var(--green)":"var(--orange)",fontWeight:700}}>{targetCals>0?Math.round((totalCals/targetCals)*100):0}%</span></td>
+              <td><div className="progress-bar"><div className={`progress-fill ${fillClass(targetCals>0?(totalCals/targetCals)*100:0)}`} style={{width:`${Math.min(120,targetCals>0?(totalCals/targetCals)*100:0)}%`}}/></div></td>
+            </tr>
+          </tbody>
+        </table>
+        <div style={{display:"flex",justifyContent:"flex-end",marginTop:16}}>
+          <button className="btn btn-primary" onClick={handleSave} disabled={saving}>{saving?<><span className="spinner"/> Saving…</>:"💾 Save Meal Plan"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Nutrition Plan Tab ────────────────────────────────────────────────────
+function NutritionPlanTab({ toast }) {
+  const [foods, setFoods] = useState([]);
+  const [showForm, setShowForm] = useState(false);
+  const [editFood, setEditFood] = useState(null);
+  const [filterCat, setFilterCat] = useState("");
+  const [search, setSearch] = useState("");
+  const [form, setForm] = useState({name:"",protein:0,carbs:0,fat:0,fiber:0,sodium:0,potassium:0,calories:0,serving_size:"100g",category:"general"});
+  const [errors, setErrors] = useState({});
+  const [saving, setSaving] = useState(false);
+  const CATS = ["general","protein","carbs","vegetables","fruits","dairy","fats","supplements"];
+  const MFIELDS = ["protein","carbs","fat","fiber","sodium","potassium","calories"];
+  const MLABELS = {protein:"Protein (g)",carbs:"Carbs (g)",fat:"Fat (g)",fiber:"Fiber (g)",sodium:"Sodium (mg)",potassium:"Potassium (mg)",calories:"Calories (kcal)"};
+  useEffect(()=>{ get("/foods").then(setFoods); },[]);
+  function openNew(){setEditFood(null);setForm({name:"",protein:0,carbs:0,fat:0,fiber:0,sodium:0,potassium:0,calories:0,serving_size:"100g",category:"general"});setErrors({});setShowForm(true);}
+  function openEdit(f){setEditFood(f);setForm({...f});setErrors({});setShowForm(true);}
+  const sf=(k,v)=>{ setErrors(p=>({...p,[k]:null})); setForm(p=>({...p,[k]:v})); };
+  function validate_(){const e={};e.name=validate(form.name,[rules.required,rules.maxLen(100)]);MFIELDS.forEach(k=>{e[k]=validate(form[k],[rules.numeric,rules.positiveNum]);});e.serving_size=validate(form.serving_size,[rules.required,rules.maxLen(50)]);setErrors(e);return Object.values(e).every(v=>!v);}
+  async function handleSave(){if(!validate_())return;setSaving(true);try{const p={...form,...Object.fromEntries(MFIELDS.map(k=>[k,+form[k]]))};if(editFood){const u=await put(`/foods/${editFood.id}`,p);setFoods(fs=>fs.map(f=>f.id===u.id?u:f));toast.show("Food updated","success");}else{const c=await post("/foods",p);setFoods(fs=>[...fs,c]);toast.show("Food added","success");}setShowForm(false);}catch(err){toast.show(err.message,"error");}setSaving(false);}
+  async function handleDelete(id){if(!confirm("Delete this food?"))return;await del(`/foods/${id}`);setFoods(fs=>fs.filter(f=>f.id!==id));toast.show("Food deleted","success");}
+  const filtered=foods.filter(f=>(!filterCat||f.category===filterCat)&&(!search||f.name.toLowerCase().includes(search.toLowerCase())));
+  return (
+    <div>
+      <div style={{display:"flex",gap:10,marginBottom:20,flexWrap:"wrap",alignItems:"center"}}>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Search foods…"
+          style={{flex:1,minWidth:200,background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,padding:"9px 12px",color:"var(--text)",fontSize:14}}/>
+        <select value={filterCat} onChange={e=>setFilterCat(e.target.value)}
+          style={{background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,padding:"9px 12px",color:"var(--text)",fontSize:14}}>
+          <option value="">All Categories</option>
+          {CATS.map(c=><option key={c} value={c}>{c.charAt(0).toUpperCase()+c.slice(1)}</option>)}
+        </select>
+        <button className="btn btn-primary" onClick={openNew}>+ Add Food</button>
+      </div>
+      {filtered.length===0&&<div style={{padding:40,textAlign:"center",color:"var(--muted)"}}>No foods found. Add some to your nutrition database!</div>}
+      <div className="food-grid">
+        {filtered.map(f=>(
+          <div key={f.id} className="food-card">
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+              <div><div className="food-name">{f.name}</div><span className="badge badge-accent">{f.category}</span><span style={{fontSize:11,color:"var(--muted)",marginLeft:6}}>{f.serving_size}</span></div>
+              <div style={{display:"flex",gap:4}}>
+                <button className="btn btn-ghost btn-icon btn-sm" onClick={()=>openEdit(f)}>✏️</button>
+                <button className="btn btn-ghost btn-icon btn-sm" onClick={()=>handleDelete(f.id)}>🗑</button>
+              </div>
+            </div>
+            <div className="food-macros"><span className="food-macro-pill">P: {f.protein}g</span><span className="food-macro-pill">C: {f.carbs}g</span><span className="food-macro-pill">F: {f.fat}g</span><span className="food-macro-pill" style={{color:"var(--orange)",borderColor:"var(--orange)"}}>🔥 {f.calories} kcal</span></div>
+            {(f.fiber||f.sodium||f.potassium)>0&&<div className="food-macros">{f.fiber>0&&<span className="food-macro-pill">Fiber: {f.fiber}g</span>}{f.sodium>0&&<span className="food-macro-pill">Na: {f.sodium}mg</span>}{f.potassium>0&&<span className="food-macro-pill">K: {f.potassium}mg</span>}</div>}
+          </div>
+        ))}
+      </div>
+      {showForm&&(
+        <div className="overlay"><div className="dialog dialog-lg">
+          <div className="dialog-title">{editFood?"✏️ Edit Food":"➕ Add Food"}</div>
+          <div className="form-grid" style={{marginBottom:14}}>
+            <FF label="Food Name *" error={errors.name}><input value={form.name} className={errors.name?"err":""} maxLength={100} onChange={e=>sf("name",e.target.value)} placeholder="e.g. Chicken Breast"/></FF>
+            <FF label="Serving Size" error={errors.serving_size}><input value={form.serving_size} className={errors.serving_size?"err":""} maxLength={50} onChange={e=>sf("serving_size",e.target.value)} placeholder="e.g. 100g, 1 cup"/></FF>
+            <FF label="Category"><select value={form.category} onChange={e=>sf("category",e.target.value)}>{CATS.map(c=><option key={c} value={c}>{c.charAt(0).toUpperCase()+c.slice(1)}</option>)}</select></FF>
+            {MFIELDS.map(k=><FF key={k} label={MLABELS[k]} error={errors[k]}><input type="number" min="0" value={form[k]} className={errors[k]?"err":""} onChange={e=>sf(k,e.target.value)}/></FF>)}
+          </div>
+          <div className="dialog-actions">
+            {editFood&&<button className="btn btn-danger btn-sm" onClick={()=>{handleDelete(editFood.id);setShowForm(false);}}>Delete</button>}
+            <button className="btn btn-ghost" onClick={()=>setShowForm(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={handleSave} disabled={saving}>{saving?<><span className="spinner"/> Saving…</>:"Save Food"}</button>
+          </div>
+        </div></div>
+      )}
+    </div>
+  );
+}
+
+// ── Workout Plan Tab ──────────────────────────────────────────────────────
+const DAYS_OF_WEEK = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+const MUSCLE_GROUPS = ["Chest","Back","Shoulders","Biceps","Triceps","Forearms","Quads","Hamstrings","Glutes","Calves","Core","Traps","Full Body","Cardio"];
+const SET_TYPES = ["warm_up","main","drop_set"];
+const SET_TYPE_LABELS = {warm_up:"Warm Up",main:"Main",drop_set:"Drop Set"};
+
+function ExerciseDialog({ exercise, planId, onSave, onClose }) {
+  const isNew = !exercise;
+  const [f, setF] = useState({ plan_id:planId, name:exercise?.name||"", set_type:exercise?.set_type||"main", sets_json:exercise?.sets_json||[{set_number:1,weight:0,reps:0}], sort_order:exercise?.sort_order||0 });
+  const [errors, setErrors] = useState({});
+
+  function validate_() {
+    const e={};
+    e.name=validate(f.name,[rules.required,rules.maxLen(100)]);
+    f.sets_json.forEach((s,i)=>{
+      if(validate(s.weight,[rules.numeric,rules.positiveNum]))e[`w${i}`]="Weight must be ≥ 0";
+      if(validate(s.reps,[rules.numeric,rules.range(0,100)]))e[`r${i}`]="Reps 0–100";
+    });
+    setErrors(e); return Object.values(e).every(v=>!v);
+  }
+
+  function addSet() { setF(p=>({...p,sets_json:[...p.sets_json,{set_number:p.sets_json.length+1,weight:0,reps:0}]})); }
+  function removeSet(i) { setF(p=>({...p,sets_json:p.sets_json.filter((_,j)=>j!==i).map((s,j)=>({...s,set_number:j+1}))})); }
+  function updateSet(i,k,v) { setErrors(e=>({...e,[`${k[0]}${i}`]:null})); setF(p=>({...p,sets_json:p.sets_json.map((s,j)=>j===i?{...s,[k]:v}:s)})); }
+
+  async function save() { if (!validate_()) return; await onSave({...f}); onClose(); }
+
+  return (
+    <div className="overlay"><div className="dialog dialog-lg">
+      <div className="dialog-title">{isNew?"➕ Add Exercise":"✏️ Edit Exercise"}</div>
+      <div className="form-grid" style={{marginBottom:16}}>
+        <FF label="Exercise Name *" error={errors.name}><input value={f.name} className={errors.name?"err":""} maxLength={100} onChange={e=>setF(p=>({...p,name:e.target.value}))}/></FF>
+        <FF label="Set Type">
+          <select value={f.set_type} onChange={e=>setF(p=>({...p,set_type:e.target.value}))}>
+            {SET_TYPES.map(t=><option key={t} value={t}>{SET_TYPE_LABELS[t]}</option>)}
+          </select>
+        </FF>
+      </div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+        <div style={{fontWeight:700,fontSize:13}}>Sets ({f.sets_json.length})</div>
+        <button className="btn btn-secondary btn-sm" onClick={addSet}>+ Add Set</button>
+      </div>
+      <div style={{background:"var(--surface2)",borderRadius:8,padding:12,marginBottom:16}}>
+        <div style={{display:"grid",gridTemplateColumns:"50px 1fr 1fr auto",gap:8,marginBottom:8}}>
+          <div style={{fontSize:11,fontWeight:700,color:"var(--muted)"}}>Set</div>
+          <div style={{fontSize:11,fontWeight:700,color:"var(--muted)"}}>Weight (kg)</div>
+          <div style={{fontSize:11,fontWeight:700,color:"var(--muted)"}}>Reps</div>
+          <div/>
+        </div>
+        {f.sets_json.map((s,i)=>(
+          <div key={i} style={{display:"grid",gridTemplateColumns:"50px 1fr 1fr auto",gap:8,marginBottom:8,alignItems:"center"}}>
+            <div style={{fontWeight:700,textAlign:"center",color:"var(--accent)"}}>{s.set_number}</div>
+            <div>
+              <input type="number" min="0" step="0.5" value={s.weight} className={errors[`w${i}`]?"err":""}
+                onChange={e=>updateSet(i,"weight",e.target.value)}
+                style={{width:"100%",background:"var(--surface)",border:`1px solid ${errors[`w${i}`]?"var(--red)":"var(--border)"}`,borderRadius:6,padding:"6px 8px",color:"var(--text)",fontSize:13}}/>
+              {errors[`w${i}`]&&<span className="field-err">{errors[`w${i}`]}</span>}
+            </div>
+            <div>
+              <input type="number" min="0" max="100" value={s.reps} className={errors[`r${i}`]?"err":""}
+                onChange={e=>updateSet(i,"reps",e.target.value)}
+                style={{width:"100%",background:"var(--surface)",border:`1px solid ${errors[`r${i}`]?"var(--red)":"var(--border)"}`,borderRadius:6,padding:"6px 8px",color:"var(--text)",fontSize:13}}/>
+              {errors[`r${i}`]&&<span className="field-err">{errors[`r${i}`]}</span>}
+            </div>
+            <button className="btn btn-ghost btn-icon btn-sm" onClick={()=>removeSet(i)} disabled={f.sets_json.length<=1}>✕</button>
+          </div>
+        ))}
+      </div>
+      <div className="dialog-actions">
+        <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" onClick={save}>Save Exercise</button>
+      </div>
+    </div></div>
+  );
+}
+
+function WorkoutPlanDialog({ plan, onSave, onClose }) {
+  const isNew = !plan;
+  const [f, setF] = useState({ title:plan?.title||"", day_of_week:plan?.day_of_week||"Monday", muscle_groups:plan?.muscle_groups||[], notes:plan?.notes||"", sort_order:plan?.sort_order||0 });
+  const [errors, setErrors] = useState({});
+  function toggleMuscle(m) { setF(p=>({...p,muscle_groups:p.muscle_groups.includes(m)?p.muscle_groups.filter(x=>x!==m):[...p.muscle_groups,m]})); }
+  function validate_() { const e={}; e.title=validate(f.title,[rules.required,rules.maxLen(100)]); setErrors(e); return Object.values(e).every(v=>!v); }
+  async function save() { if (!validate_()) return; await onSave(f); onClose(); }
+  return (
+    <div className="overlay"><div className="dialog dialog-lg">
+      <div className="dialog-title">{isNew?"➕ New Workout":"✏️ Edit Workout"}</div>
+      <div className="form-grid" style={{marginBottom:14}}>
+        <FF label="Workout Title *" error={errors.title}><input value={f.title} className={errors.title?"err":""} maxLength={100} onChange={e=>setF(p=>({...p,title:e.target.value}))}/></FF>
+        <FF label="Day of Week">
+          <select value={f.day_of_week} onChange={e=>setF(p=>({...p,day_of_week:e.target.value}))}>
+            {DAYS_OF_WEEK.map(d=><option key={d} value={d}>{d}</option>)}
+          </select>
+        </FF>
+      </div>
+      <FF label="Muscle Groups Targeted">
+        <div className="muscle-tags">
+          {MUSCLE_GROUPS.map(m=>(
+            <span key={m} className={"muscle-tag"+(f.muscle_groups.includes(m)?" selected":"")} onClick={()=>toggleMuscle(m)}>{m}</span>
+          ))}
+        </div>
+      </FF>
+      <div style={{height:12}}/>
+      <FF label="Notes"><textarea rows={2} value={f.notes} onChange={e=>setF(p=>({...p,notes:e.target.value}))} placeholder="Any additional notes…" maxLength={500}/></FF>
+      <div className="dialog-actions">
+        <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" onClick={save}>{isNew?"Create Workout":"Save"}</button>
+      </div>
+    </div></div>
+  );
+}
+
+function WorkoutPlanTab({ toast }) {
+  const [workouts, setWorkouts] = useState([]);
+  const [showPlanDialog, setShowPlanDialog] = useState(false);
+  const [editPlan, setEditPlan] = useState(null);
+  const [expandedPlan, setExpandedPlan] = useState(null);
+  const [showExDialog, setShowExDialog] = useState(false);
+  const [editEx, setEditEx] = useState(null);
+
+  useEffect(()=>{ loadWorkouts(); },[]);
+  async function loadWorkouts() { try { const d=await get("/workouts"); setWorkouts(d); } catch(e){ console.error(e); } }
+
+  async function savePlan(body) {
+    try {
+      if (editPlan) { const u=await put(`/workouts/${editPlan.id}`,body); setWorkouts(ws=>ws.map(w=>w.id===u.id?u:w)); toast.show("Workout updated","success"); }
+      else { const c=await post("/workouts",body); setWorkouts(ws=>[...ws,c]); toast.show("Workout created","success"); }
+    } catch(err){toast.show(err.message,"error");}
+  }
+
+  async function deletePlan(id) {
+    if (!confirm("Delete this workout plan?")) return;
+    await del(`/workouts/${id}`); setWorkouts(ws=>ws.filter(w=>w.id!==id)); if(expandedPlan===id)setExpandedPlan(null); toast.show("Workout deleted","success");
+  }
+
+  async function saveExercise(body) {
+    try {
+      if(editEx){const u=await put(`/exercises/${editEx.id}`,body);setWorkouts(ws=>ws.map(w=>w.id===body.plan_id?{...w,exercises:w.exercises.map(e=>e.id===u.id?u:e)}:w));toast.show("Exercise updated","success");}
+      else{const c=await post("/exercises",body);setWorkouts(ws=>ws.map(w=>w.id===body.plan_id?{...w,exercises:[...w.exercises,c]}:w));toast.show("Exercise added","success");}
+    } catch(err){toast.show(err.message,"error");}
+  }
+
+  async function deleteExercise(planId, exId) {
+    await del(`/exercises/${exId}`);
+    setWorkouts(ws=>ws.map(w=>w.id===planId?{...w,exercises:w.exercises.filter(e=>e.id!==exId)}:w));
+    toast.show("Exercise deleted","success");
+  }
+
+  const byDay = DAYS_OF_WEEK.reduce((acc,d)=>({...acc,[d]:workouts.filter(w=>w.day_of_week===d)}),[]);
+  const expanded = expandedPlan ? workouts.find(w=>w.id===expandedPlan) : null;
+
+  return (
+    <div>
+      <div className="section-header">
+        <div className="section-title">📅 Weekly Workout Plan</div>
+        <button className="btn btn-primary" onClick={()=>{setEditPlan(null);setShowPlanDialog(true);}}>+ New Workout</button>
+      </div>
+
+      {/* Week grid */}
+      <div className="workout-week">
+        {DAYS_OF_WEEK.map(day=>(
+          <div key={day} className="workout-day-col">
+            <div className="workout-day-header">{day.slice(0,3)}</div>
+            {byDay[day]?.map(wp=>(
+              <div key={wp.id} className={"workout-plan-card"+(expandedPlan===wp.id?" selected":"")} onClick={()=>setExpandedPlan(expandedPlan===wp.id?null:wp.id)}>
+                <div className="workout-plan-title">{wp.title}</div>
+                {wp.muscle_groups?.length>0&&<div className="workout-plan-muscles">{wp.muscle_groups.slice(0,2).join(", ")}{wp.muscle_groups.length>2?`+${wp.muscle_groups.length-2}`:""}</div>}
+                <div style={{fontSize:11,color:"var(--muted)",marginTop:3}}>{wp.exercises?.length||0} exercise{wp.exercises?.length!==1?"s":""}</div>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+
+      {/* Expanded workout */}
+      {expanded && (
+        <div className="card">
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:16}}>
+            <div>
+              <div style={{fontWeight:700,fontSize:18}}>{expanded.title}</div>
+              <div style={{color:"var(--muted)",fontSize:13,marginTop:2}}>{expanded.day_of_week}</div>
+              {expanded.muscle_groups?.length>0&&(
+                <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:6}}>
+                  {expanded.muscle_groups.map(m=><span key={m} className="badge badge-accent">{m}</span>)}
+                </div>
+              )}
+              {expanded.notes&&<div style={{fontSize:12,color:"var(--muted)",marginTop:6}}>{expanded.notes}</div>}
+            </div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              <button className="btn btn-secondary btn-sm" onClick={()=>{setEditPlan(expanded);setShowPlanDialog(true);}}>✏️ Edit</button>
+              <button className="btn btn-danger btn-sm" onClick={()=>deletePlan(expanded.id)}>🗑 Delete</button>
+              <button className="btn btn-primary btn-sm" onClick={()=>{setEditEx(null);setShowExDialog(true);}}>+ Add Exercise</button>
+              <button className="btn btn-ghost btn-sm" onClick={()=>setExpandedPlan(null)}>✕ Close</button>
+            </div>
+          </div>
+
+          {expanded.exercises?.length===0&&<div style={{color:"var(--muted)",fontSize:13,padding:"20px 0"}}>No exercises yet. Add some!</div>}
+
+          {expanded.exercises?.map(ex=>(
+            <div key={ex.id} className="exercise-row">
+              <div className="exercise-header">
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <div className="exercise-name">{ex.name}</div>
+                  <span className={`set-type-badge st-${ex.set_type}`}>{SET_TYPE_LABELS[ex.set_type]||ex.set_type}</span>
+                </div>
+                <div style={{display:"flex",gap:6}}>
+                  <button className="btn btn-ghost btn-icon btn-sm" onClick={()=>{setEditEx(ex);setShowExDialog(true);}}>✏️</button>
+                  <button className="btn btn-ghost btn-icon btn-sm" onClick={()=>deleteExercise(expanded.id,ex.id)}>🗑</button>
+                </div>
+              </div>
+              {ex.sets_json?.length>0&&(
+                <div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                    <thead>
+                      <tr>{["Set","Weight (kg)","Reps"].map(h=><th key={h} style={{textAlign:"left",padding:"4px 10px",color:"var(--muted)",fontWeight:700,fontSize:11,textTransform:"uppercase",borderBottom:"1px solid var(--border)"}}>{h}</th>)}</tr>
+                    </thead>
+                    <tbody>
+                      {ex.sets_json.map((s,i)=>(
+                        <tr key={i}>
+                          <td style={{padding:"6px 10px",fontWeight:700,color:"var(--accent)"}}>{s.set_number}</td>
+                          <td style={{padding:"6px 10px"}}>{s.weight} kg</td>
+                          <td style={{padding:"6px 10px"}}>{s.reps} reps</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showPlanDialog&&<WorkoutPlanDialog plan={editPlan} onSave={savePlan} onClose={()=>{setShowPlanDialog(false);setEditPlan(null);}}/>}
+      {showExDialog&&<ExerciseDialog exercise={editEx} planId={expandedPlan} onSave={saveExercise} onClose={()=>{setShowExDialog(false);setEditEx(null);}}/>}
+    </div>
+  );
+}
+
+// ── Administration Tab ────────────────────────────────────────────────────
+function AdministrationTab({ toast }) {
+  const [smtp, setSmtp] = useState(null);
+  const [smtpForm, setSmtpForm] = useState({});
+  const [smtpErrors, setSmtpErrors] = useState({});
+  const [smtpSaving, setSmtpSaving] = useState(false);
+  const [smtpTesting, setSmtpTesting] = useState(false);
+  const [smtpStatus, setSmtpStatus] = useState(null);
+  const [sendForm, setSendForm] = useState({ to_email:"", subject:"Your BodyBuilder Program", message:"" });
+  const [sendErrors, setSendErrors] = useState({});
+  const [sending, setSending] = useState(false);
+  const [athleteEmail, setAthleteEmail] = useState("");
+
+  useEffect(()=>{ loadSmtp(); get("/athlete").then(a=>{ setAthleteEmail(a.email||""); setSendForm(p=>({...p,to_email:a.email||""})); }); },[]);
+
+  async function loadSmtp() { const d=await get("/admin/smtp"); setSmtp(d); setSmtpForm({host:d.host,port:d.port,username:d.username,password:"",from_name:d.from_name,use_tls:d.use_tls}); }
+
+  const ssf=(k,v)=>{ setSmtpErrors(p=>({...p,[k]:null})); setSmtpForm(p=>({...p,[k]:v})); };
+
+  function validateSmtp() {
+    const e={};
+    e.host=validate(smtpForm.host,[rules.required,rules.maxLen(200)]);
+    e.port=validate(smtpForm.port,[rules.required,rules.numeric,rules.range(1,65535)]);
+    e.username=validate(smtpForm.username,[rules.required,rules.maxLen(200)]);
+    e.from_name=validate(smtpForm.from_name,[rules.maxLen(100)]);
+    setSmtpErrors(e); return Object.values(e).every(v=>!v);
+  }
+
+  async function saveSmtp() {
+    if (!validateSmtp()) return;
+    setSmtpSaving(true);
+    try { const u=await put("/admin/smtp",{...smtpForm,port:+smtpForm.port}); setSmtp(u); toast.show("SMTP settings saved","success"); setSmtpStatus(null); } catch(err){toast.show(err.message,"error");}
+    setSmtpSaving(false);
+  }
+
+  async function testSmtp() {
+    setSmtpTesting(true); setSmtpStatus(null);
+    try { const r=await post("/admin/test-smtp",{}); setSmtpStatus({ok:true,msg:r.message}); toast.show(r.message,"success"); } catch(err){setSmtpStatus({ok:false,msg:err.message});toast.show(err.message,"error");}
+    setSmtpTesting(false);
+  }
+
+  function validateSend() {
+    const e={};
+    e.to_email=validate(sendForm.to_email,[rules.required,rules.email]);
+    e.subject=validate(sendForm.subject,[rules.required,rules.maxLen(200)]);
+    e.message=validate(sendForm.message,[rules.maxLen(2000)]);
+    setSendErrors(e); return Object.values(e).every(v=>!v);
+  }
+
+  async function handleSend() {
+    if (!validateSend()) return;
+    setSending(true);
+    try { const r=await post("/admin/send-program",sendForm); toast.show(r.message,"success"); } catch(err){toast.show(err.message,"error");}
+    setSending(false);
+  }
+
+  if (!smtp) return <div style={{padding:40,textAlign:"center"}}><div className="spinner"/></div>;
+
+  return (
+    <div>
+      {/* SMTP Config */}
+      <div className="card">
+        <div className="card-title">✉️ Email Configuration (SMTP)
+          {smtpStatus&&<span style={{marginLeft:12,fontSize:12}}><span className={`status-dot status-${smtpStatus.ok?"ok":"err"}`} style={{marginRight:4}}/>{smtpStatus.msg}</span>}
+        </div>
+        <div className="form-grid">
+          <FF label="SMTP Host *" error={smtpErrors.host}><input value={smtpForm.host||""} className={smtpErrors.host?"err":""} onChange={e=>ssf("host",e.target.value)} placeholder="smtp.gmail.com"/></FF>
+          <FF label="SMTP Port *" error={smtpErrors.port}><input type="number" min="1" max="65535" value={smtpForm.port||""} className={smtpErrors.port?"err":""} onChange={e=>ssf("port",e.target.value)}/></FF>
+          <FF label="Username / Email *" error={smtpErrors.username}><input value={smtpForm.username||""} className={smtpErrors.username?"err":""} onChange={e=>ssf("username",e.target.value)} placeholder="your@gmail.com"/></FF>
+          <FF label="Password (App Password)"><input type="password" value={smtpForm.password||""} onChange={e=>ssf("password",e.target.value)} placeholder="Leave blank to keep existing"/></FF>
+          <FF label="From Name" error={smtpErrors.from_name}><input value={smtpForm.from_name||""} className={smtpErrors.from_name?"err":""} maxLength={100} onChange={e=>ssf("from_name",e.target.value)} placeholder="BodyBuilder Coach"/></FF>
+          <FF label="Security">
+            <div className="time-toggle">
+              <button className={"time-option"+(smtpForm.use_tls?" active":"")} onClick={()=>ssf("use_tls",true)}>STARTTLS</button>
+              <button className={"time-option"+(!smtpForm.use_tls?" active":"")} onClick={()=>ssf("use_tls",false)}>SSL/TLS</button>
+            </div>
+          </FF>
+        </div>
+        <div style={{marginTop:6,padding:"10px 12px",background:"rgba(79,142,247,.08)",borderRadius:8,fontSize:12,color:"var(--muted)"}}>
+          💡 For Gmail: enable 2FA and use an <b>App Password</b> (not your regular password). Port 587 + STARTTLS is recommended.
+        </div>
+        <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:16,flexWrap:"wrap"}}>
+          <button className="btn btn-ghost" onClick={testSmtp} disabled={smtpTesting}>{smtpTesting?<><span className="spinner"/> Testing…</>:"🔌 Test Connection"}</button>
+          <button className="btn btn-primary" onClick={saveSmtp} disabled={smtpSaving}>{smtpSaving?<><span className="spinner"/> Saving…</>:"💾 Save SMTP"}</button>
+        </div>
+      </div>
+
+      {/* Send Program */}
+      <div className="card">
+        <div className="card-title">📤 Send Program to Athlete</div>
+        {athleteEmail&&<div style={{padding:"10px 12px",background:"rgba(46,204,113,.08)",borderRadius:8,fontSize:13,color:"var(--muted)",marginBottom:16}}>Athlete email on file: <b style={{color:"var(--text)"}}>{athleteEmail}</b></div>}
+        <div className="form-grid">
+          <FF label="Recipient Email *" error={sendErrors.to_email}><input type="email" value={sendForm.to_email} className={sendErrors.to_email?"err":""} onChange={e=>{setSendErrors(p=>({...p,to_email:null}));setSendForm(p=>({...p,to_email:e.target.value}));}} placeholder="athlete@email.com"/></FF>
+          <FF label="Subject *" error={sendErrors.subject}><input value={sendForm.subject} className={sendErrors.subject?"err":""} maxLength={200} onChange={e=>{setSendErrors(p=>({...p,subject:null}));setSendForm(p=>({...p,subject:e.target.value}));}}/></FF>
+        </div>
+        <FF label="Message (optional)" error={sendErrors.message}>
+          <textarea rows={4} value={sendForm.message} className={sendErrors.message?"err":""} maxLength={2000}
+            onChange={e=>{setSendErrors(p=>({...p,message:null}));setSendForm(p=>({...p,message:e.target.value}));}}
+            placeholder="Hi, please find your BodyBuilder program attached…"/>
+        </FF>
+        <div style={{padding:"10px 12px",background:"var(--surface2)",borderRadius:8,fontSize:12,color:"var(--muted)",margin:"12px 0"}}>
+          📎 The program will be attached as a <b>CSV file</b> that can be imported into Google Sheets. It includes: athlete profile, program details, meal plan targets, nutrition database, and workout plan.
+        </div>
+        <div style={{display:"flex",gap:10,justifyContent:"space-between",alignItems:"center",flexWrap:"wrap"}}>
+          <a href="http://localhost:8000/api/admin/export-csv" download className="btn btn-secondary" style={{textDecoration:"none"}}>⬇️ Download CSV</a>
+          <button className="btn btn-primary" onClick={handleSend} disabled={sending}>{sending?<><span className="spinner"/> Sending…</>:"📤 Send Program"}</button>
+        </div>
+      </div>
+
+      {/* Google Sheets Instructions */}
+      <div className="card">
+        <div className="card-title">📊 Google Sheets Import Guide</div>
+        <div style={{lineHeight:1.8,fontSize:13,color:"var(--muted)"}}>
+          <p>The exported CSV file contains all program data. To import into Google Sheets:</p>
+          <ol style={{marginLeft:20,marginTop:10}}>
+            <li>Download the CSV using the button above (or receive it via email)</li>
+            <li>Open <b style={{color:"var(--text)"}}>Google Sheets</b> and create a new spreadsheet</li>
+            <li>Go to <b style={{color:"var(--text)"}}>File → Import → Upload</b> and select the CSV file</li>
+            <li>For each section (Athlete Profile, Meal Plan, Nutrition, Workouts), you can copy the rows to separate sheets</li>
+            <li>Additional tabs will be added to this export as more features are built</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── App ───────────────────────────────────────────────────────────────────
+const TABS = [
+  { id:"athlete",    label:"👤 Athlete Settings" },
+  { id:"calendar",   label:"📅 Calendar" },
+  { id:"mealplan",   label:"🥗 Meal Plan" },
+  { id:"nutrition",  label:"🥦 Nutrition Plan" },
+  { id:"workout",    label:"🏋️ Workout Plan" },
+  { id:"admin",      label:"⚙️ Administration" },
+];
+
+function App() {
+  const [tab, setTab] = useState("athlete");
+  const [version, setVersion] = useState({ major:1, minor:0, tiny:0, notes:"" });
+  const [showVer, setShowVer] = useState(false);
+  const toast = useToast();
+
+  useEffect(()=>{ get("/version").then(setVersion).catch(console.error); },[]);
+
+  async function saveVersion(v) {
+    const u = await put("/version", v);
+    setVersion(u);
+    toast.show(`Version set to v${u.major}.${u.minor}.${u.tiny}`, "success");
+  }
+
+  return (
+    <div id="root">
+      <div className="header">
+        <div className="header-brand">💪 <span>Body</span>Builder</div>
+        <div className="header-right">
+          <div className="header-version" onClick={()=>setShowVer(true)} title="Click to set version">
+            v{version.major}.{version.minor}.{version.tiny}
+          </div>
+        </div>
+      </div>
+      <div className="tabs">
+        {TABS.map(t=><div key={t.id} className={"tab"+(tab===t.id?" active":"")} onClick={()=>setTab(t.id)}>{t.label}</div>)}
+      </div>
+      <div className="content">
+        {tab==="athlete"   && <AthleteSettings toast={toast}/>}
+        {tab==="calendar"  && <CalendarTab toast={toast}/>}
+        {tab==="mealplan"  && <MealPlanTab toast={toast}/>}
+        {tab==="nutrition" && <NutritionPlanTab toast={toast}/>}
+        {tab==="workout"   && <WorkoutPlanTab toast={toast}/>}
+        {tab==="admin"     && <AdministrationTab toast={toast}/>}
+      </div>
+      {showVer && <VersionDialog current={version} onSave={saveVersion} onClose={()=>setShowVer(false)}/>}
+      {toast.Toaster}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
