@@ -5,6 +5,7 @@ Multi-athlete support, workout plans, meal plans, calendar, xlsx export, email
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, field_validator
 from typing import Optional, List
 import sqlite3
@@ -76,7 +77,8 @@ def init_db():
         workout_days TEXT DEFAULT '[]',
         workout_time TEXT DEFAULT 'AM',
         phase TEXT DEFAULT 'maintain',
-        deficit REAL DEFAULT 0
+        deficit REAL DEFAULT 0,
+        units TEXT DEFAULT 'metric'
     )""")
 
     # ── Migrate old single-athlete table if present ──
@@ -115,9 +117,17 @@ def init_db():
         athlete_id INTEGER NOT NULL DEFAULT 1,
         level INTEGER NOT NULL,
         additional_calories REAL DEFAULT 0,
+        multiplier REAL DEFAULT 1.0,
         UNIQUE(athlete_id, level),
         FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE
     )""")
+    # Migrate existing rows: add multiplier column and seed standard values
+    if not _col_exists(conn, "activity_calories", "multiplier"):
+        c.execute("ALTER TABLE activity_calories ADD COLUMN multiplier REAL DEFAULT 1.0")
+    # Fix any rows still at the placeholder default of 1.0 — no standard level uses 1.0
+    for lvl, mult in [(1,1.200),(2,1.375),(3,1.550),(4,1.725),(5,1.900)]:
+        c.execute("UPDATE activity_calories SET multiplier=? WHERE level=? AND multiplier=1.0",
+                  (mult, lvl))
     # Will be populated per-athlete on first access
 
     # ── calendar_days ──
@@ -201,11 +211,67 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         session_id INTEGER NOT NULL,
         name TEXT DEFAULT '',
-        set_type TEXT DEFAULT 'main',
+        muscle_group TEXT DEFAULT '',
+        set_type TEXT DEFAULT 'working',
         sets_json TEXT DEFAULT '[]',
+        rep_range TEXT DEFAULT '',
+        rir INTEGER DEFAULT 2,
+        tempo TEXT DEFAULT '',
+        intensifiers TEXT DEFAULT '',
         exercise_notes TEXT DEFAULT '',
         sort_order INTEGER DEFAULT 0,
         FOREIGN KEY (session_id) REFERENCES workout_sessions(id) ON DELETE CASCADE
+    )""")
+    # Migrate old exercise columns
+    for col, defval in [("muscle_group","''"), ("rep_range","''"), ("rir","2"),
+                        ("tempo","''"), ("intensifiers","''")]:
+        if not _col_exists(conn, "workout_exercises", col):
+            c.execute(f"ALTER TABLE workout_exercises ADD COLUMN {col} TEXT DEFAULT {defval}")
+    # Migrate set_type 'main' → 'working'
+    c.execute("UPDATE workout_exercises SET set_type='working' WHERE set_type='main'")
+    # Migrate athletes: add units column
+    if not _col_exists(conn, "athletes", "units"):
+        c.execute("ALTER TABLE athletes ADD COLUMN units TEXT DEFAULT 'metric'")
+
+    # ── supplements ──
+    c.execute("""CREATE TABLE IF NOT EXISTS supplements (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        athlete_id INTEGER NOT NULL,
+        day_of_week TEXT NOT NULL,
+        name TEXT DEFAULT '',
+        dosage TEXT DEFAULT '',
+        time_of_day TEXT DEFAULT 'AM',
+        sort_order INTEGER DEFAULT 0,
+        FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE
+    )""")
+
+    # ── meals ──
+    c.execute("""CREATE TABLE IF NOT EXISTS meals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        athlete_id INTEGER NOT NULL,
+        day_type TEXT DEFAULT 'training',
+        name TEXT DEFAULT '',
+        sort_order INTEGER DEFAULT 0,
+        FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE
+    )""")
+
+    # ── meal_items ──
+    c.execute("""CREATE TABLE IF NOT EXISTS meal_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        meal_id INTEGER NOT NULL,
+        source_type TEXT DEFAULT 'protein',
+        food_name TEXT DEFAULT '',
+        quantity REAL DEFAULT 1,
+        weight_g REAL DEFAULT 0,
+        serving_size TEXT DEFAULT '100g',
+        protein_g REAL DEFAULT 0,
+        carbs_g REAL DEFAULT 0,
+        fat_g REAL DEFAULT 0,
+        fiber_g REAL DEFAULT 0,
+        sodium_mg REAL DEFAULT 0,
+        potassium_mg REAL DEFAULT 0,
+        sort_order INTEGER DEFAULT 0,
+        FOREIGN KEY (meal_id) REFERENCES meals(id) ON DELETE CASCADE
     )""")
 
     # ── smtp_settings ──
@@ -223,10 +289,14 @@ def init_db():
 
 def ensure_athlete_defaults(athlete_id: int):
     """Ensure activity_calories and meal_plan rows exist for this athlete."""
+    # Standard Harris-Benedict TDEE multipliers per activity level
+    DEFAULTS = [(1, 0, 1.200), (2, 0, 1.375), (3, 0, 1.550), (4, 0, 1.725), (5, 0, 1.900)]
     conn = get_db()
-    for level, cal in [(1,200),(2,400),(3,600),(4,800),(5,1000)]:
-        conn.execute("INSERT OR IGNORE INTO activity_calories (athlete_id, level, additional_calories) VALUES (?,?,?)",
-                     (athlete_id, level, cal))
+    for level, cal, mult in DEFAULTS:
+        conn.execute(
+            "INSERT OR IGNORE INTO activity_calories "
+            "(athlete_id, level, additional_calories, multiplier) VALUES (?,?,?,?)",
+            (athlete_id, level, cal, mult))
     conn.execute("INSERT OR IGNORE INTO meal_plans (athlete_id) VALUES (?)", (athlete_id,))
     conn.commit()
     conn.close()
@@ -297,7 +367,13 @@ class AthleteModel(BaseModel):
     workout_time: Optional[str] = "AM"
     phase: Optional[str] = "maintain"
     deficit: Optional[float] = 0
+    units: Optional[str] = "metric"
 
+    @field_validator("units")
+    @classmethod
+    def units_v(cls, v):
+        if v not in ("metric", "imperial"): raise ValueError("metric or imperial")
+        return v
     @field_validator("email")
     @classmethod
     def email_v(cls, v):
@@ -353,7 +429,13 @@ class ProgramModel(BaseModel):
 
 
 class ActivityCalModel(BaseModel):
-    additional_calories: float
+    additional_calories: float = 0
+    multiplier: float = 1.2
+    @field_validator("multiplier")
+    @classmethod
+    def mult_v(cls, v):
+        if v is not None and (v < 0.5 or v > 5.0): raise ValueError("Multiplier must be 0.5–5.0")
+        return v
     @field_validator("additional_calories")
     @classmethod
     def cal_v(cls, v):
@@ -511,8 +593,13 @@ class WorkoutSessionModel(BaseModel):
 class WorkoutExerciseModel(BaseModel):
     session_id: int
     name: str
-    set_type: Optional[str] = "main"
+    muscle_group: Optional[str] = ""
+    set_type: Optional[str] = "working"
     sets_json: Optional[List[dict]] = []
+    rep_range: Optional[str] = ""
+    rir: Optional[int] = 2
+    tempo: Optional[str] = ""
+    intensifiers: Optional[str] = ""
     exercise_notes: Optional[str] = ""
     sort_order: Optional[int] = 0
     @field_validator("name")
@@ -524,8 +611,80 @@ class WorkoutExerciseModel(BaseModel):
     @field_validator("set_type")
     @classmethod
     def type_v(cls, v):
-        if v not in ("warm_up","main","drop_set"): raise ValueError("warm_up/main/drop_set")
+        if v not in ("warm_up","working","drop_set"): raise ValueError("warm_up/working/drop_set")
         return v
+    @field_validator("rir")
+    @classmethod
+    def rir_v(cls, v):
+        if v is not None and (v < 0 or v > 10): raise ValueError("RIR 0–10")
+        return v
+
+
+class SupplementModel(BaseModel):
+    day_of_week: str
+    name: str
+    dosage: Optional[str] = ""
+    time_of_day: Optional[str] = "AM"
+    sort_order: Optional[int] = 0
+    @field_validator("day_of_week")
+    @classmethod
+    def dow_v(cls, v):
+        valid = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
+        if v not in valid: raise ValueError(f"Must be one of: {', '.join(valid)}")
+        return v
+    @field_validator("name")
+    @classmethod
+    def name_v(cls, v):
+        if not v or not v.strip(): raise ValueError("Supplement name required")
+        if len(v)>100: raise ValueError("Max 100 chars")
+        return v.strip()
+    @field_validator("time_of_day")
+    @classmethod
+    def tod_v(cls, v):
+        if v not in ("AM","PM"): raise ValueError("AM or PM")
+        return v
+
+
+class MealModel(BaseModel):
+    day_type: Optional[str] = "training"
+    name: str
+    sort_order: Optional[int] = 0
+    @field_validator("day_type")
+    @classmethod
+    def dt_v(cls, v):
+        if v not in ("training","off"): raise ValueError("training or off")
+        return v
+    @field_validator("name")
+    @classmethod
+    def name_v(cls, v):
+        if not v or not v.strip(): raise ValueError("Meal name required")
+        if len(v)>100: raise ValueError("Max 100 chars")
+        return v.strip()
+
+
+class MealItemModel(BaseModel):
+    source_type: Optional[str] = "protein"
+    food_name: str
+    quantity: Optional[float] = 1
+    weight_g: Optional[float] = 0
+    serving_size: Optional[str] = "100g"
+    protein_g: Optional[float] = 0
+    carbs_g: Optional[float] = 0
+    fat_g: Optional[float] = 0
+    fiber_g: Optional[float] = 0
+    sodium_mg: Optional[float] = 0
+    potassium_mg: Optional[float] = 0
+    sort_order: Optional[int] = 0
+    @field_validator("source_type")
+    @classmethod
+    def st_v(cls, v):
+        if v not in ("protein","carb","fat"): raise ValueError("protein/carb/fat")
+        return v
+    @field_validator("food_name")
+    @classmethod
+    def fn_v(cls, v):
+        if not v or not v.strip(): raise ValueError("Food name required")
+        return v.strip()
 
 
 # ─── Version ──────────────────────────────────────────────────────────────────
@@ -560,11 +719,11 @@ def create_athlete(body: AthleteModel):
     conn = get_db()
     cur = conn.execute("""INSERT INTO athletes
         (name,email,birthdate,height_cm,weight_kg,body_fat_pct,sex,activity_level,
-         workout_days_per_week,workout_days,workout_time,phase,deficit)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+         workout_days_per_week,workout_days,workout_time,phase,deficit,units)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (body.name,body.email,body.birthdate,body.height_cm,body.weight_kg,body.body_fat_pct,
          body.sex,body.activity_level,body.workout_days_per_week,json.dumps(body.workout_days),
-         body.workout_time,body.phase,body.deficit))
+         body.workout_time,body.phase,body.deficit,body.units))
     new_id = cur.lastrowid
     conn.commit(); conn.close()
     ensure_athlete_defaults(new_id)
@@ -585,10 +744,10 @@ def update_athlete(athlete_id: int, body: AthleteModel):
         conn.close(); raise HTTPException(404)
     conn.execute("""UPDATE athletes SET name=?,email=?,birthdate=?,height_cm=?,weight_kg=?,
         body_fat_pct=?,sex=?,activity_level=?,workout_days_per_week=?,workout_days=?,
-        workout_time=?,phase=?,deficit=? WHERE id=?""",
+        workout_time=?,phase=?,deficit=?,units=? WHERE id=?""",
         (body.name,body.email,body.birthdate,body.height_cm,body.weight_kg,body.body_fat_pct,
          body.sex,body.activity_level,body.workout_days_per_week,json.dumps(body.workout_days),
-         body.workout_time,body.phase,body.deficit,athlete_id))
+         body.workout_time,body.phase,body.deficit,body.units,athlete_id))
     conn.commit(); conn.close()
     return get_athlete(athlete_id)
 
@@ -640,25 +799,40 @@ def get_activity_calories(athlete_id: int):
 def update_activity_calories(athlete_id: int, level: int, body: ActivityCalModel):
     if level<1 or level>5: raise HTTPException(400, "Level 1–5")
     conn = get_db()
-    conn.execute("INSERT INTO activity_calories (athlete_id,level,additional_calories) VALUES (?,?,?) ON CONFLICT(athlete_id,level) DO UPDATE SET additional_calories=excluded.additional_calories",
-                 (athlete_id,level,body.additional_calories))
+    conn.execute("""INSERT INTO activity_calories (athlete_id,level,additional_calories,multiplier)
+        VALUES (?,?,?,?) ON CONFLICT(athlete_id,level) DO UPDATE SET
+        additional_calories=excluded.additional_calories, multiplier=excluded.multiplier""",
+        (athlete_id, level, body.additional_calories, body.multiplier))
     conn.commit(); conn.close()
     return get_activity_calories(athlete_id)
 
 @app.get("/api/athletes/{athlete_id}/daily-calories")
 def get_daily_calories(athlete_id: int):
+    ensure_athlete_defaults(athlete_id)
     ath = get_athlete(athlete_id)
     rmr = ath["average"]
     level = ath["activity_level"]
     deficit = ath["deficit"]
     conn = get_db()
-    ac = conn.execute("SELECT additional_calories FROM activity_calories WHERE athlete_id=? AND level=?",
-                      (athlete_id,level)).fetchone()
+    ac = conn.execute(
+        "SELECT additional_calories, multiplier FROM activity_calories WHERE athlete_id=? AND level=?",
+        (athlete_id, level)).fetchone()
     conn.close()
     additional = ac["additional_calories"] if ac else 0
-    total = max(0, rmr+additional-deficit)
-    return {"rmr":round(rmr,1),"activity_level":level,"additional_calories":round(additional,1),
-            "deficit":round(deficit,1),"total_calories":round(total,1),"phase":ath["phase"],"name":ath["name"]}
+    multiplier = ac["multiplier"] if ac else 1.2
+    tdee   = rmr * multiplier + additional
+    total  = max(0, tdee - deficit)
+    return {
+        "rmr": round(rmr, 1),
+        "activity_level": level,
+        "multiplier": round(multiplier, 4),
+        "additional_calories": round(additional, 1),
+        "tdee": round(tdee, 1),
+        "deficit": round(deficit, 1),
+        "total_calories": round(total, 1),
+        "phase": ath["phase"],
+        "name": ath["name"],
+    }
 
 
 # ─── Calendar ─────────────────────────────────────────────────────────────────
@@ -830,6 +1004,148 @@ def delete_food(athlete_id: int, food_id: int):
     return {"deleted": food_id}
 
 
+# ─── Supplements ──────────────────────────────────────────────────────────────
+
+DAYS_OF_WEEK = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
+
+@app.get("/api/athletes/{athlete_id}/supplements")
+def list_supplements(athlete_id: int, day_of_week: Optional[str] = None):
+    conn = get_db()
+    if day_of_week:
+        if day_of_week not in DAYS_OF_WEEK:
+            raise HTTPException(400, "Invalid day_of_week")
+        rows = conn.execute(
+            "SELECT * FROM supplements WHERE athlete_id=? AND day_of_week=? ORDER BY time_of_day, sort_order",
+            (athlete_id, day_of_week)).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM supplements WHERE athlete_id=? ORDER BY day_of_week, time_of_day, sort_order",
+            (athlete_id,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+@app.post("/api/athletes/{athlete_id}/supplements")
+def create_supplement(athlete_id: int, body: SupplementModel):
+    conn = get_db()
+    cur = conn.execute(
+        "INSERT INTO supplements (athlete_id,day_of_week,name,dosage,time_of_day,sort_order) VALUES (?,?,?,?,?,?)",
+        (athlete_id,body.day_of_week,body.name,body.dosage,body.time_of_day,body.sort_order))
+    sid = cur.lastrowid; conn.commit()
+    row = conn.execute("SELECT * FROM supplements WHERE id=?", (sid,)).fetchone()
+    conn.close(); return dict(row)
+
+@app.put("/api/athletes/{athlete_id}/supplements/{sup_id}")
+def update_supplement(athlete_id: int, sup_id: int, body: SupplementModel):
+    conn = get_db()
+    if not conn.execute("SELECT id FROM supplements WHERE id=? AND athlete_id=?", (sup_id,athlete_id)).fetchone():
+        conn.close(); raise HTTPException(404)
+    conn.execute(
+        "UPDATE supplements SET day_of_week=?,name=?,dosage=?,time_of_day=?,sort_order=? WHERE id=?",
+        (body.day_of_week,body.name,body.dosage,body.time_of_day,body.sort_order,sup_id))
+    conn.commit()
+    row = conn.execute("SELECT * FROM supplements WHERE id=?", (sup_id,)).fetchone()
+    conn.close(); return dict(row)
+
+@app.delete("/api/athletes/{athlete_id}/supplements/{sup_id}")
+def delete_supplement(athlete_id: int, sup_id: int):
+    conn = get_db()
+    conn.execute("DELETE FROM supplements WHERE id=? AND athlete_id=?", (sup_id,athlete_id))
+    conn.commit(); conn.close()
+    return {"deleted": sup_id}
+
+
+# ─── Meals ────────────────────────────────────────────────────────────────────
+
+def _load_meal(conn, meal_id):
+    row = conn.execute("SELECT * FROM meals WHERE id=?", (meal_id,)).fetchone()
+    if not row: raise HTTPException(404, "Meal not found")
+    meal = dict(row)
+    items = conn.execute("SELECT * FROM meal_items WHERE meal_id=? ORDER BY source_type, sort_order",
+                         (meal_id,)).fetchall()
+    meal["items"] = [dict(i) for i in items]
+    # Compute totals
+    totals = {"protein_g":0,"carbs_g":0,"fat_g":0,"fiber_g":0,"sodium_mg":0,"potassium_mg":0,"calories":0}
+    for it in meal["items"]:
+        qty = it.get("quantity",1) or 1
+        for k in ["protein_g","carbs_g","fat_g","fiber_g","sodium_mg","potassium_mg"]:
+            totals[k] += (it.get(k,0) or 0) * qty
+        totals["calories"] += ((it.get("protein_g",0)*4) + (it.get("carbs_g",0)*4) + (it.get("fat_g",0)*9)) * qty
+    meal["totals"] = {k: round(v,1) for k,v in totals.items()}
+    return meal
+
+@app.get("/api/athletes/{athlete_id}/meals")
+def list_meals(athlete_id: int, day_type: Optional[str] = None):
+    conn = get_db()
+    if day_type:
+        rows = conn.execute("SELECT id FROM meals WHERE athlete_id=? AND day_type=? ORDER BY sort_order, name",
+                            (athlete_id, day_type)).fetchall()
+    else:
+        rows = conn.execute("SELECT id FROM meals WHERE athlete_id=? ORDER BY day_type, sort_order, name",
+                            (athlete_id,)).fetchall()
+    result = [_load_meal(conn, r["id"]) for r in rows]
+    conn.close(); return result
+
+@app.post("/api/athletes/{athlete_id}/meals")
+def create_meal(athlete_id: int, body: MealModel):
+    conn = get_db()
+    cur = conn.execute("INSERT INTO meals (athlete_id,day_type,name,sort_order) VALUES (?,?,?,?)",
+                       (athlete_id,body.day_type,body.name,body.sort_order))
+    mid = cur.lastrowid; conn.commit()
+    result = _load_meal(conn, mid); conn.close(); return result
+
+@app.put("/api/athletes/{athlete_id}/meals/{meal_id}")
+def update_meal(athlete_id: int, meal_id: int, body: MealModel):
+    conn = get_db()
+    if not conn.execute("SELECT id FROM meals WHERE id=? AND athlete_id=?", (meal_id,athlete_id)).fetchone():
+        conn.close(); raise HTTPException(404)
+    conn.execute("UPDATE meals SET day_type=?,name=?,sort_order=? WHERE id=?",
+                 (body.day_type,body.name,body.sort_order,meal_id))
+    conn.commit()
+    result = _load_meal(conn, meal_id); conn.close(); return result
+
+@app.delete("/api/athletes/{athlete_id}/meals/{meal_id}")
+def delete_meal(athlete_id: int, meal_id: int):
+    conn = get_db()
+    conn.execute("DELETE FROM meals WHERE id=? AND athlete_id=?", (meal_id,athlete_id))
+    conn.commit(); conn.close()
+    return {"deleted": meal_id}
+
+@app.post("/api/meals/{meal_id}/items")
+def create_meal_item(meal_id: int, body: MealItemModel):
+    conn = get_db()
+    cur = conn.execute(
+        """INSERT INTO meal_items (meal_id,source_type,food_name,quantity,weight_g,serving_size,
+           protein_g,carbs_g,fat_g,fiber_g,sodium_mg,potassium_mg,sort_order)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (meal_id,body.source_type,body.food_name,body.quantity,body.weight_g,body.serving_size,
+         body.protein_g,body.carbs_g,body.fat_g,body.fiber_g,body.sodium_mg,body.potassium_mg,body.sort_order))
+    iid = cur.lastrowid; conn.commit()
+    row = conn.execute("SELECT * FROM meal_items WHERE id=?", (iid,)).fetchone()
+    conn.close(); return dict(row)
+
+@app.put("/api/meal-items/{item_id}")
+def update_meal_item(item_id: int, body: MealItemModel):
+    conn = get_db()
+    conn.execute(
+        """UPDATE meal_items SET source_type=?,food_name=?,quantity=?,weight_g=?,serving_size=?,
+           protein_g=?,carbs_g=?,fat_g=?,fiber_g=?,sodium_mg=?,potassium_mg=?,sort_order=? WHERE id=?""",
+        (body.source_type,body.food_name,body.quantity,body.weight_g,body.serving_size,
+         body.protein_g,body.carbs_g,body.fat_g,body.fiber_g,body.sodium_mg,body.potassium_mg,
+         body.sort_order,item_id))
+    conn.commit()
+    row = conn.execute("SELECT * FROM meal_items WHERE id=?", (item_id,)).fetchone()
+    conn.close()
+    if not row: raise HTTPException(404)
+    return dict(row)
+
+@app.delete("/api/meal-items/{item_id}")
+def delete_meal_item(item_id: int):
+    conn = get_db()
+    conn.execute("DELETE FROM meal_items WHERE id=?", (item_id,))
+    conn.commit(); conn.close()
+    return {"deleted": item_id}
+
+
 # ─── Workout Plans ────────────────────────────────────────────────────────────
 
 def _load_plan(conn, plan_id):
@@ -927,9 +1243,12 @@ def delete_session(session_id: int):
 @app.post("/api/workout-exercises")
 def create_exercise(body: WorkoutExerciseModel):
     conn = get_db()
-    cur = conn.execute("""INSERT INTO workout_exercises (session_id,name,set_type,sets_json,exercise_notes,sort_order)
-        VALUES (?,?,?,?,?,?)""",
-        (body.session_id,body.name,body.set_type,json.dumps(body.sets_json),body.exercise_notes,body.sort_order))
+    cur = conn.execute(
+        """INSERT INTO workout_exercises
+           (session_id,name,muscle_group,set_type,sets_json,rep_range,rir,tempo,intensifiers,exercise_notes,sort_order)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+        (body.session_id,body.name,body.muscle_group,body.set_type,json.dumps(body.sets_json),
+         body.rep_range,body.rir,body.tempo,body.intensifiers,body.exercise_notes,body.sort_order))
     eid = cur.lastrowid; conn.commit()
     row = conn.execute("SELECT * FROM workout_exercises WHERE id=?", (eid,)).fetchone()
     e = dict(row); e["sets_json"] = json.loads(e.get("sets_json") or "[]")
@@ -938,9 +1257,11 @@ def create_exercise(body: WorkoutExerciseModel):
 @app.put("/api/workout-exercises/{exercise_id}")
 def update_exercise(exercise_id: int, body: WorkoutExerciseModel):
     conn = get_db()
-    conn.execute("""UPDATE workout_exercises SET session_id=?,name=?,set_type=?,sets_json=?,exercise_notes=?,sort_order=?
-        WHERE id=?""",
-        (body.session_id,body.name,body.set_type,json.dumps(body.sets_json),body.exercise_notes,body.sort_order,exercise_id))
+    conn.execute(
+        """UPDATE workout_exercises SET session_id=?,name=?,muscle_group=?,set_type=?,sets_json=?,
+           rep_range=?,rir=?,tempo=?,intensifiers=?,exercise_notes=?,sort_order=? WHERE id=?""",
+        (body.session_id,body.name,body.muscle_group,body.set_type,json.dumps(body.sets_json),
+         body.rep_range,body.rir,body.tempo,body.intensifiers,body.exercise_notes,body.sort_order,exercise_id))
     conn.commit()
     row = conn.execute("SELECT * FROM workout_exercises WHERE id=?", (exercise_id,)).fetchone()
     e = dict(row); e["sets_json"] = json.loads(e.get("sets_json") or "[]")
@@ -1011,11 +1332,13 @@ def _build_workbook(athlete_id: int):
     foods = [dict(r) for r in conn.execute("SELECT * FROM nutrition_foods WHERE athlete_id=? ORDER BY name", (athlete_id,)).fetchall()]
     plan_ids = conn.execute("SELECT id FROM workout_plans WHERE athlete_id=? ORDER BY sort_order, title", (athlete_id,)).fetchall()
     plans = [_load_plan(conn, r["id"]) for r in plan_ids]
-    dc_row = conn.execute("SELECT additional_calories FROM activity_calories WHERE athlete_id=? AND level=?",
-                          (athlete_id, ath["activity_level"])).fetchone()
+    dc_row = conn.execute(
+        "SELECT additional_calories, multiplier FROM activity_calories WHERE athlete_id=? AND level=?",
+        (athlete_id, ath["activity_level"])).fetchone()
     conn.close()
     additional_cal = dc_row["additional_calories"] if dc_row else 0
-    total_cal = max(0, ath["average"] + additional_cal - ath["deficit"])
+    multiplier_val = dc_row["multiplier"] if dc_row else 1.2
+    total_cal = max(0, ath["average"] * multiplier_val + additional_cal - ath["deficit"])
 
     wb = Workbook()
 
@@ -1074,9 +1397,10 @@ def _build_workbook(athlete_id: int):
         ("", "", "", ""),
         ("RMR — Mifflin-St Jeor", ath["mifflin"], "RMR — Harris-Benedict", ath["harris"]),
         ("RMR — Katch-McArdle", ath["katch"], "RMR Average (used)", ath["average"]),
-        ("Additional Cal (Activity)", additional_cal, "Caloric Deficit", ath["deficit"]),
+        ("Activity Multiplier", multiplier_val, "Additional Calories", additional_cal),
+        ("TDEE (RMR × Multiplier)", round(ath["average"] * multiplier_val, 1), "Caloric Deficit", ath["deficit"]),
         ("", "", "", ""),
-        ("TOTAL DAILY CALORIES", total_cal, "Program Phase", ath["phase"].upper()),
+        ("TOTAL DAILY CALORIES", round(total_cal, 1), "Program Phase", ath["phase"].upper()),
     ]
     for ri, row in enumerate(rows, 3):
         for ci, val in enumerate(row, 1):
@@ -1270,6 +1594,10 @@ def serve_frontend():
     index = FRONTEND_DIR / "index.html"
     if index.exists(): return FileResponse(str(index))
     return {"message": "BodyBuilder API running. Open frontend/index.html in your browser."}
+
+# Serve frontend static assets (css, js, images)
+if FRONTEND_DIR.exists():
+    app.mount("/", StaticFiles(directory=str(FRONTEND_DIR)), name="frontend")
 
 
 if __name__ == "__main__":
