@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # 💪 BodyBuilder — Installation Guide
 
 Welcome! This guide will walk you through getting the BodyBuilder application running on your computer, step by step. No technical experience is required.
@@ -217,3 +218,7 @@ All data (athletes, workouts, meal plans, calendar entries, etc.) is stored in a
 ---
 
 *BodyBuilder — built for coaches who care.*
+=======
+# BodyBuilder
+Full managed web application to track a body building program
+>>>>>>> origin/main
