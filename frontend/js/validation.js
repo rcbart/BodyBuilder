@@ -20,8 +20,11 @@ const rules = {
   },
   safeUrl:     (v) => {
     if (!v) return null;
-    if (!/^https?:\/\//i.test(v)) return "URL must start with http:// or https://";
-    if (v.length > 500)           return "URL too long";
+    // Allow http/https URLs or local exercise-image paths served by the app
+    const isHttp  = /^https?:\/\//i.test(v);
+    const isLocal = v.startsWith("/exercise-images/");
+    if (!isHttp && !isLocal) return "URL must start with http:// or https://";
+    if (v.length > 500)      return "URL too long";
     return null;
   },
 };

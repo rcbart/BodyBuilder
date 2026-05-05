@@ -160,7 +160,19 @@ function ExerciseDialog({ exercise, sessionId, onSave, onClose, units }) {
     const err = {};
     err.name = validate(f.name, [rules.required, rules.maxLen(100), rules.noScript]);
     if (!cardio.cardio_type) err.cardio_type = "Select a cardio type";
-    if (cardio.hr_min !== "" && cardio.hr_max !== "" && +cardio.hr_min >= +cardio.hr_max)
+    const totalMins = (+cardio.duration_hours || 0) * 60 + (+cardio.duration_minutes || 0);
+    if (totalMins <= 0) err.duration = "Duration must be greater than 0";
+    if (cardio.hr_min !== "" && cardio.hr_min !== null) {
+      const v = validate(cardio.hr_min, [rules.numeric, rules.range(0, 300)]);
+      if (v) err.hr_min = v;
+    }
+    if (cardio.hr_max !== "" && cardio.hr_max !== null) {
+      const v = validate(cardio.hr_max, [rules.numeric, rules.range(0, 300)]);
+      if (v) err.hr_max = v;
+    }
+    if (cardio.hr_min !== "" && cardio.hr_max !== "" &&
+        cardio.hr_min !== null && cardio.hr_max !== null &&
+        +cardio.hr_min >= +cardio.hr_max)
       err.hr_range = "Min HR must be less than max HR";
     err.exercise_notes = validate(f.exercise_notes, [rules.maxLen(500), rules.noScript]);
     setE(err);

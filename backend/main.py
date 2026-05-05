@@ -38,6 +38,16 @@ app.add_middleware(
 BASE_DIR = Path(__file__).parent
 DB_PATH = str(BASE_DIR / "bodybuilder.db")
 FRONTEND_DIR = BASE_DIR.parent / "frontend"
+
+# ── Read version from repo-root VERSION file ──────────────────────────────────
+_VERSION_FILE = BASE_DIR.parent / "VERSION"
+def _read_version_file() -> tuple[int, int, int]:
+    try:
+        parts = _VERSION_FILE.read_text().strip().split(".")
+        return int(parts[0]), int(parts[1]), int(parts[2])
+    except Exception:
+        return 1, 0, 0
+APP_VERSION = _read_version_file()   # (major, minor, tiny)
 EXERCISE_IMAGES_DIR = BASE_DIR / "exercise_images"
 EXERCISE_IMAGES_DIR.mkdir(exist_ok=True)
 
@@ -243,6 +253,15 @@ def init_db():
         major INTEGER DEFAULT 1, minor INTEGER DEFAULT 0, tiny INTEGER DEFAULT 0, notes TEXT DEFAULT ''
     )""")
     c.execute("INSERT OR IGNORE INTO version (id) VALUES (1)")
+    # Sync version table with VERSION file (only if the file version is newer)
+    _vmaj, _vmin, _vtiny = APP_VERSION
+    _row = c.execute("SELECT major, minor, tiny FROM version WHERE id=1").fetchone()
+    if _row:
+        _db_tuple  = (_row["major"] or 0, _row["minor"] or 0, _row["tiny"] or 0)
+        _file_tuple = (_vmaj, _vmin, _vtiny)
+        if _file_tuple > _db_tuple:
+            c.execute("UPDATE version SET major=?, minor=?, tiny=? WHERE id=1",
+                      (_vmaj, _vmin, _vtiny))
 
     # ── athletes (multi-athlete) ──
     c.execute("""CREATE TABLE IF NOT EXISTS athletes (
@@ -573,11 +592,30 @@ class AthleteModel(BaseModel):
     deficit: Optional[float] = 0
     units: Optional[str] = "metric"
 
+    @field_validator("name")
+    @classmethod
+    def name_v(cls, v):
+        v = (v or "").strip()
+        if len(v) > 100: raise ValueError("Max 100 characters")
+        if re.search(r"<script|javascript\s*:|on\w+\s*=", v, re.I): raise ValueError("Invalid characters")
+        return v
     @field_validator("units")
     @classmethod
     def units_v(cls, v):
         if v not in ("metric", "imperial"): raise ValueError("metric or imperial")
         return v
+    @field_validator("workout_time")
+    @classmethod
+    def wt_v(cls, v):
+        if v not in ("AM", "PM"): raise ValueError("AM or PM")
+        return v
+    @field_validator("workout_days")
+    @classmethod
+    def wd_days_v(cls, v):
+        valid = {"Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"}
+        for d in (v or []):
+            if d not in valid: raise ValueError(f"Invalid day: {d}")
+        return v or []
     @field_validator("email")
     @classmethod
     def email_v(cls, v):
@@ -626,10 +664,29 @@ class AthleteModel(BaseModel):
         return v
 
 
+def _valid_date_or_empty(v: str, field: str) -> str:
+    """Return v if it is a valid ISO date (YYYY-MM-DD) or empty string; raise ValueError otherwise."""
+    v = (v or "").strip()
+    if not v:
+        return ""
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", v):
+        raise ValueError(f"{field} must be YYYY-MM-DD or empty")
+    try:
+        date.fromisoformat(v)
+    except ValueError:
+        raise ValueError(f"{field} is not a valid date")
+    return v
+
+
 class ProgramModel(BaseModel):
     start_date: Optional[str] = ""
     end_date: Optional[str] = ""
     payment_processed: Optional[bool] = False
+
+    @field_validator("start_date", "end_date")
+    @classmethod
+    def date_v(cls, v, info):
+        return _valid_date_or_empty(v, info.field_name)
 
 
 class ActivityCalModel(BaseModel):
@@ -662,6 +719,18 @@ class CalDayModel(BaseModel):
     def dur_v(cls, v):
         if v is not None and (v<0 or v>600): raise ValueError("0–600 min")
         return v
+    @field_validator("aerobic_type")
+    @classmethod
+    def atype_v(cls, v):
+        v = (v or "").strip()
+        if len(v) > 100: raise ValueError("Max 100 characters")
+        return v
+    @field_validator("workout_notes")
+    @classmethod
+    def wnotes_v(cls, v):
+        v = (v or "").strip()
+        if len(v) > 1000: raise ValueError("Max 1000 characters")
+        return v
 
 
 class EventModel(BaseModel):
@@ -669,12 +738,31 @@ class EventModel(BaseModel):
     title: Optional[str] = ""
     description: Optional[str] = ""
     event_time: Optional[str] = ""
+    @field_validator("date")
+    @classmethod
+    def event_date_v(cls, v):
+        result = _valid_date_or_empty(v, "date")
+        if not result: raise ValueError("date required")
+        return result
     @field_validator("title")
     @classmethod
     def title_v(cls, v):
         if not v or not v.strip(): raise ValueError("Title required")
         if len(v)>100: raise ValueError("Max 100 chars")
         return v.strip()
+    @field_validator("description")
+    @classmethod
+    def desc_v(cls, v):
+        v = (v or "").strip()
+        if len(v) > 1000: raise ValueError("Max 1000 characters")
+        return v
+    @field_validator("event_time")
+    @classmethod
+    def etime_v(cls, v):
+        v = (v or "").strip()
+        if v and not re.fullmatch(r"\d{1,2}:\d{2}", v):
+            raise ValueError("event_time must be HH:MM or empty")
+        return v
 
 
 class MealPlanModel(BaseModel):
@@ -690,6 +778,18 @@ class MealPlanModel(BaseModel):
     fiber_actual: Optional[float] = 0
     sodium_actual: Optional[float] = 0
     potassium_actual: Optional[float] = 0
+
+    @field_validator("protein_target","carbs_target","fat_target","fiber_target",
+                     "protein_actual","carbs_actual","fat_actual","fiber_actual")
+    @classmethod
+    def macro_v(cls, v):
+        if v is not None and (v < 0 or v > 9999): raise ValueError("Must be 0–9999 g")
+        return v or 0
+    @field_validator("sodium_target","potassium_target","sodium_actual","potassium_actual")
+    @classmethod
+    def mineral_v(cls, v):
+        if v is not None and (v < 0 or v > 99999): raise ValueError("Must be 0–99999 mg")
+        return v or 0
 
 
 class FoodModel(BaseModel):
@@ -707,7 +807,30 @@ class FoodModel(BaseModel):
     @classmethod
     def name_v(cls, v):
         if not v or not v.strip(): raise ValueError("Name required")
+        if len(v) > 200: raise ValueError("Max 200 characters")
         return v.strip()
+    @field_validator("serving_size")
+    @classmethod
+    def ss_v(cls, v):
+        v = (v or "100g").strip()
+        if len(v) > 50: raise ValueError("Max 50 characters")
+        return v
+    @field_validator("protein","carbs","fat","fiber","calories")
+    @classmethod
+    def macro_v(cls, v):
+        if v is not None and (v < 0 or v > 9999): raise ValueError("Must be 0–9999")
+        return v or 0
+    @field_validator("sodium","potassium")
+    @classmethod
+    def mineral_v(cls, v):
+        if v is not None and (v < 0 or v > 99999): raise ValueError("Must be 0–99999 mg")
+        return v or 0
+    @field_validator("category")
+    @classmethod
+    def cat_v(cls, v):
+        allowed = ("protein","carb","fat","vegetable","fruit","dairy","supplement","general")
+        if v not in allowed: raise ValueError("Invalid category")
+        return v
 
 
 class FoodSwapModel(BaseModel):
@@ -739,7 +862,9 @@ class FoodSwapModel(BaseModel):
     @classmethod
     def swap_name_v(cls, v):
         if v and len(v) > 150: raise ValueError("Max 150 chars")
-        return (v or "").strip()
+        v = (v or "").strip()
+        if re.search(r"<script|javascript\s*:|on\w+\s*=", v, re.I): raise ValueError("Invalid characters")
+        return v
 
 
 class VersionModel(BaseModel):
@@ -804,6 +929,16 @@ class WorkoutPlanModel(BaseModel):
         if not v or not v.strip(): raise ValueError("Title required")
         if len(v)>100: raise ValueError("Max 100 chars")
         return v.strip()
+    @field_validator("notes")
+    @classmethod
+    def notes_v(cls, v):
+        v = (v or "").strip()
+        if len(v) > 2000: raise ValueError("Max 2000 characters")
+        return v
+    @field_validator("start_date", "end_date")
+    @classmethod
+    def plan_date_v(cls, v, info):
+        return _valid_date_or_empty(v, info.field_name)
 
 
 class WorkoutSessionModel(BaseModel):
@@ -823,6 +958,12 @@ class WorkoutSessionModel(BaseModel):
     @classmethod
     def title_v(cls, v):
         if v and len(v)>100: raise ValueError("Max 100 chars")
+        return v or ""
+    @field_validator("session_notes")
+    @classmethod
+    def snotes_v(cls, v):
+        v = (v or "").strip()
+        if len(v) > 2000: raise ValueError("Max 2000 characters")
         return v
 
 
@@ -863,36 +1004,82 @@ class WorkoutExerciseModel(BaseModel):
         if not v: return ""
         v = v.strip()
         if len(v) > 500: raise ValueError("URL too long (max 500 chars)")
-        if v and not (v.startswith("http://") or v.startswith("https://")):
-            raise ValueError("Image URL must start with http:// or https://")
+        # Allow http/https URLs and local exercise-image paths served by this app
+        if not (v.startswith("http://") or v.startswith("https://")
+                or v.startswith("/exercise-images/")):
+            raise ValueError("Image URL must start with http://, https://, or /exercise-images/")
         return v
     @field_validator("sets_json")
     @classmethod
     def ex_sets_v(cls, v):
         if v is None: return []
         if len(v) > 50: raise ValueError("Max 50 sets per exercise")
-        allowed_set_keys = {"set_number","type","weight","reps","rep_range","rir","tempo","notes"}
-        allowed_types = {"W","M","I"}
+
+        # Cardio exercise: exactly one set with cardio_type key
+        CARDIO_KEYS   = {"cardio_type","duration_hours","duration_minutes","rpe","hr_min","hr_max"}
+        STRENGTH_KEYS = {"set_number","type","weight","reps","rep_range","rir","tempo","notes"}
+        ALLOWED_TYPES = {"W","M","I"}
+
         for i, s in enumerate(v):
             if not isinstance(s, dict): raise ValueError(f"Set {i+1} must be an object")
-            extra = set(s.keys()) - allowed_set_keys
+
+            is_cardio = "cardio_type" in s
+            allowed   = CARDIO_KEYS if is_cardio else STRENGTH_KEYS
+            extra     = set(s.keys()) - allowed
             if extra: raise ValueError(f"Set {i+1} has unexpected fields: {extra}")
-            if "type" in s and s["type"] not in allowed_types:
-                raise ValueError(f"Set {i+1} type must be W, M, or I")
-            if "weight" in s:
-                try:
-                    w = float(s["weight"])
-                    if w < 0 or w > 5000: raise ValueError(f"Set {i+1} weight out of range (0–5000)")
-                except (TypeError, ValueError) as e:
-                    if "out of range" in str(e): raise
-                    raise ValueError(f"Set {i+1} weight must be numeric")
-            if "reps" in s:
-                try:
-                    r = int(s["reps"])
-                    if r < 0 or r > 200: raise ValueError(f"Set {i+1} reps out of range (0–200)")
-                except (TypeError, ValueError) as e:
-                    if "out of range" in str(e): raise
-                    raise ValueError(f"Set {i+1} reps must be an integer")
+
+            if is_cardio:
+                # Validate cardio-specific fields
+                ct = s.get("cardio_type", "")
+                if ct and len(str(ct)) > 100:
+                    raise ValueError(f"Set {i+1} cardio_type too long (max 100)")
+                for fld in ("duration_hours", "duration_minutes"):
+                    val = s.get(fld)
+                    if val is not None:
+                        try:
+                            iv = int(val)
+                            if iv < 0 or iv > 999:
+                                raise ValueError(f"Set {i+1} {fld} must be 0–999")
+                        except (TypeError, ValueError) as e:
+                            if "must be" in str(e): raise
+                            raise ValueError(f"Set {i+1} {fld} must be numeric")
+                rpe = s.get("rpe")
+                if rpe is not None:
+                    try:
+                        rv = float(rpe)
+                        if rv < 1 or rv > 10:
+                            raise ValueError(f"Set {i+1} rpe must be 1–10")
+                    except (TypeError, ValueError) as e:
+                        if "must be" in str(e): raise
+                        raise ValueError(f"Set {i+1} rpe must be numeric")
+                for fld in ("hr_min", "hr_max"):
+                    val = s.get(fld)
+                    if val is not None:
+                        try:
+                            iv = int(val)
+                            if iv < 0 or iv > 300:
+                                raise ValueError(f"Set {i+1} {fld} must be 0–300 bpm")
+                        except (TypeError, ValueError) as e:
+                            if "must be" in str(e): raise
+                            raise ValueError(f"Set {i+1} {fld} must be numeric")
+            else:
+                # Validate strength-specific fields
+                if "type" in s and s["type"] not in ALLOWED_TYPES:
+                    raise ValueError(f"Set {i+1} type must be W, M, or I")
+                if "weight" in s:
+                    try:
+                        w = float(s["weight"])
+                        if w < 0 or w > 5000: raise ValueError(f"Set {i+1} weight out of range (0–5000)")
+                    except (TypeError, ValueError) as e:
+                        if "out of range" in str(e): raise
+                        raise ValueError(f"Set {i+1} weight must be numeric")
+                if "reps" in s:
+                    try:
+                        r = int(s["reps"])
+                        if r < 0 or r > 200: raise ValueError(f"Set {i+1} reps out of range (0–200)")
+                    except (TypeError, ValueError) as e:
+                        if "out of range" in str(e): raise
+                        raise ValueError(f"Set {i+1} reps must be an integer")
         return v
     @field_validator("rep_range","tempo","intensifiers","exercise_notes","muscle_group")
     @classmethod
@@ -919,6 +1106,12 @@ class SupplementModel(BaseModel):
         if not v or not v.strip(): raise ValueError("Supplement name required")
         if len(v)>100: raise ValueError("Max 100 chars")
         return v.strip()
+    @field_validator("dosage")
+    @classmethod
+    def dosage_v(cls, v):
+        v = (v or "").strip()
+        if len(v) > 80: raise ValueError("Max 80 characters")
+        return v
     @field_validator("time_of_day")
     @classmethod
     def tod_v(cls, v):
@@ -966,7 +1159,34 @@ class MealItemModel(BaseModel):
     @classmethod
     def fn_v(cls, v):
         if not v or not v.strip(): raise ValueError("Food name required")
+        if len(v) > 200: raise ValueError("Max 200 characters")
         return v.strip()
+    @field_validator("serving_size")
+    @classmethod
+    def item_ss_v(cls, v):
+        v = (v or "100g").strip()
+        if len(v) > 50: raise ValueError("Max 50 characters")
+        return v
+    @field_validator("quantity")
+    @classmethod
+    def qty_v(cls, v):
+        if v is not None and (v < 0 or v > 9999): raise ValueError("Quantity must be 0–9999")
+        return v or 0
+    @field_validator("weight_g")
+    @classmethod
+    def wg_v(cls, v):
+        if v is not None and (v < 0 or v > 99999): raise ValueError("Weight must be 0–99999 g")
+        return v or 0
+    @field_validator("protein_g","carbs_g","fat_g","fiber_g")
+    @classmethod
+    def item_macro_v(cls, v):
+        if v is not None and (v < 0 or v > 9999): raise ValueError("Must be 0–9999 g")
+        return v or 0
+    @field_validator("sodium_mg","potassium_mg")
+    @classmethod
+    def item_mineral_v(cls, v):
+        if v is not None and (v < 0 or v > 99999): raise ValueError("Must be 0–99999 mg")
+        return v or 0
 
 
 # ─── Version ──────────────────────────────────────────────────────────────────
@@ -976,7 +1196,9 @@ def get_version():
     conn = get_db()
     row = conn.execute("SELECT * FROM version WHERE id=1").fetchone()
     conn.close()
-    return dict(row) if row else {"major":1,"minor":0,"tiny":0,"notes":""}
+    data = dict(row) if row else {"major":1,"minor":0,"tiny":0,"notes":""}
+    data["version_string"] = f"{data['major']}.{data['minor']}.{data['tiny']}"
+    return data
 
 @app.put("/api/version")
 def update_version(body: VersionModel):
@@ -1162,8 +1384,20 @@ def get_calendar_month(athlete_id: int, year: int, month: int):
             "events":[dict(e) for e in events],
             "plan_sessions": plan_sessions}
 
+def _require_date_str(date_str: str) -> str:
+    """Validate that date_str is a valid ISO date (YYYY-MM-DD)."""
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_str):
+        raise HTTPException(400, "date must be YYYY-MM-DD")
+    try:
+        date.fromisoformat(date_str)
+    except ValueError:
+        raise HTTPException(400, "Invalid date")
+    return date_str
+
+
 @app.get("/api/athletes/{athlete_id}/calendar/day/{date_str}")
 def get_calendar_day(athlete_id: int, date_str: str):
+    _require_date_str(date_str)
     conn = get_db()
     row = conn.execute("SELECT * FROM calendar_days WHERE athlete_id=? AND date=?",
                        (athlete_id, date_str)).fetchone()
@@ -1176,6 +1410,7 @@ def get_calendar_day(athlete_id: int, date_str: str):
 
 @app.put("/api/athletes/{athlete_id}/calendar/day/{date_str}")
 def update_calendar_day(athlete_id: int, date_str: str, body: CalDayModel):
+    _require_date_str(date_str)
     conn = get_db()
     conn.execute("""INSERT INTO calendar_days (athlete_id,date,steps,aerobic_type,aerobic_duration,workout_notes)
         VALUES (?,?,?,?,?,?)
