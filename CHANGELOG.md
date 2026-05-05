@@ -1,3 +1,33 @@
+## v1.1.2 — May 5, 2026
+
+### Repository & Documentation
+
+**`.gitignore`**
+- Resolved merge conflict between HEAD (`.env` only) and `origin/main` (comprehensive Python template)
+- Added `*.code-workspace`, `*.db`, `.DS_Store`, `backend/venv/`, and all standard Python tooling entries
+- Added explicit `DOCKER-COMPLETE.code-workspace` entry
+
+**`README.md`**
+- Resolved merge conflict; rewrote the file to reflect the current v1.1.1 feature set
+- Replaced the old Windows / `requirements.txt` install flow with the macOS installer approach
+- Added feature table with tab icons matching the app, project structure tree, development quick-start, and data/privacy section
+- Removed all personal references and local machine paths
+
+**`installer/INSTALL_GUIDE.md`**
+- Bumped version header to 1.1.2
+- Added new **Step 1 — Download BodyBuilder to Your Mac** covering the full GitHub ZIP download flow for non-technical users: opening the repo page, finding the green Code button, downloading the ZIP, unzipping, and placing the folder in a permanent location
+- Renumbered all subsequent steps (previously Steps 1–5 are now Steps 2–6)
+- Updated the **Updating** section to include the re-download step as part of the upgrade flow
+- Added three new troubleshooting entries: GitHub page navigation confusion, ZIP file not found after download, and the `-main` suffix on the unzipped folder name
+
+**`bodybuilder.sh`**
+- Removed hardcoded `/Volumes/CODE/bodyBuilder/backend` path
+- Replaced with a self-resolving path relative to the script's own location — works correctly regardless of where the project folder is placed
+- Removed emoji characters from output messages for terminal compatibility
+- Added direct invocation support: `./bodybuilder.sh start|stop|restart|status|logs`
+
+---
+
 ## v1.1.1 — May 5, 2026
 
 ### Security & Validation
