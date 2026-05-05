@@ -10,7 +10,20 @@ const rules = {
   },
   maxLen:      (n) => (v) => v && v.length > n ? `Max ${n} characters` : null,
   email:       (v) => { if (!v) return null; return v.includes("@") && v.includes(".") ? null : "Invalid email"; },
-  noScript:    (v) => { if (!v) return null; return /<script/i.test(v) ? "Invalid characters" : null; },
+  noScript:    (v) => {
+    if (!v) return null;
+    if (/<script/i.test(v))                                        return "Invalid characters";
+    if (/javascript\s*:/i.test(v))                                 return "Invalid characters";
+    if (/on\w+\s*=/i.test(v))                                      return "Invalid characters";
+    if (/<\s*(iframe|object|embed|svg|link|meta|base)\b/i.test(v)) return "Invalid characters";
+    return null;
+  },
+  safeUrl:     (v) => {
+    if (!v) return null;
+    if (!/^https?:\/\//i.test(v)) return "URL must start with http:// or https://";
+    if (v.length > 500)           return "URL too long";
+    return null;
+  },
 };
 
 function validate(value, validators) {

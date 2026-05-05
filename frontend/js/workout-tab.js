@@ -8,6 +8,46 @@ const SET_TYPES = [
   {value:"drop_set", label:"Drop Set", cls:"st-drop_set"},
 ];
 
+// Per-set type badges: W / M / I
+const SET_ROW_TYPES = [
+  { value:"W", label:"W", title:"Warm Up",    bg:"rgba(79,142,247,.18)",  color:"var(--accent)" },
+  { value:"M", label:"M", title:"Main",        bg:"rgba(52,199,89,.18)",   color:"var(--green)"  },
+  { value:"I", label:"I", title:"Intensifier", bg:"rgba(255,149,0,.18)",   color:"var(--orange)" },
+];
+
+// ── Cardio constants ──────────────────────────────────────────────────────────
+const CARDIO_TYPES = [
+  "Running (Outdoor)",
+  "Treadmill Running",
+  "Cycling (Outdoor)",
+  "Indoor Cycling / Spin",
+  "Swimming",
+  "Rowing Machine",
+  "Elliptical",
+  "Stair Climber",
+  "Jump Rope",
+  "Walking / Hiking",
+  "HIIT",
+  "Battle Ropes",
+  "Sled Push",
+  "Assault Bike",
+  "Cross-Country Skiing",
+  "Other",
+];
+
+const RPE_LABELS = {
+  1:"Very Easy", 2:"Easy", 3:"Light", 4:"Somewhat Hard", 5:"Moderate",
+  6:"Hard", 7:"Very Hard", 8:"Very Hard", 9:"Extremely Hard", 10:"Max Effort"
+};
+
+const HR_ZONES = [
+  { label:"Z1", title:"Recovery",  min:100, max:120, color:"#4f8ef7" },
+  { label:"Z2", title:"Fat Burn",  min:121, max:140, color:"var(--green)" },
+  { label:"Z3", title:"Aerobic",   min:141, max:155, color:"var(--yellow)" },
+  { label:"Z4", title:"Threshold", min:156, max:170, color:"var(--orange)" },
+  { label:"Z5", title:"Max",       min:171, max:185, color:"var(--red)" },
+];
+
 // ── Exercise Library (grouped by muscle group) ────────────────────────────────
 const EXERCISE_LIBRARY = {
   "Chest":      ["Barbell Bench Press","Dumbbell Bench Press","Incline Bench Press","Decline Bench Press","Push-Up","Cable Fly","Dumbbell Fly","Chest Dip","Cable Crossover","Pec Deck"],
@@ -24,42 +64,89 @@ const EXERCISE_LIBRARY = {
   "Cardio":     ["Treadmill Run","Cycling","Rowing","Jump Rope","Stair Climber","Sled Push","Battle Ropes"],
   "Full Body":  ["Clean and Press","Kettlebell Swing","Burpee","Box Jump","Thruster","Turkish Get-Up"],
 };
-
 const ALL_MUSCLE_GROUPS = Object.keys(EXERCISE_LIBRARY);
 
 // ── Exercise Dialog ────────────────────────────────────────────────────────────
 function ExerciseDialog({ exercise, sessionId, onSave, onClose, units }) {
   units = units || "metric";
   const isNew = !exercise;
+
+  // Detect if this is a cardio exercise (stored as sets_json[0].cardio_type)
+  const isCardioEx = !!(exercise?.sets_json?.[0]?.cardio_type !== undefined && exercise?.sets_json?.[0]?.cardio_type !== null);
+  const initType = isCardioEx ? "cardio" : "strength";
+
+  const makeSet = (base) => ({
+    set_number: base?.set_number || 1,
+    type:       base?.type || "M",
+    weight:     base?.weight ?? 0,
+    reps:       base?.reps ?? 0,
+    rep_range:  base?.rep_range || "",
+    rir:        base?.rir ?? "",
+    tempo:      base?.tempo || "",
+    notes:      base?.notes || "",
+  });
+
+  const [exerciseType, setExerciseType] = useState(initType);
+
   const [f, setF] = useState({
-    session_id:   sessionId,
-    name:         exercise?.name || "",
-    muscle_group: exercise?.muscle_group || "",
-    set_type:     exercise?.set_type || "working",
-    sets_json:    exercise?.sets_json?.length
-      ? exercise.sets_json.map(s=>({...s, type: s.type||"M"}))
-      : [{set_number:1, type:"M", weight:0, reps:0}],
-    rep_range:    exercise?.rep_range || "",
-    rir:          exercise?.rir ?? 2,
-    tempo:        exercise?.tempo || "",
-    intensifiers: exercise?.intensifiers || "",
+    session_id:     sessionId,
+    name:           exercise?.name || "",
+    muscle_group:   exercise?.muscle_group || "",
+    set_type:       exercise?.set_type || "working",
+    image_url:      exercise?.image_url || "",
+    sets_json:      (!isCardioEx && exercise?.sets_json?.length)
+      ? exercise.sets_json.map(s => makeSet(s))
+      : [makeSet({set_number:1, type:"M"})],
+    rep_range:      exercise?.rep_range || "",
+    rir:            exercise?.rir ?? 2,
+    tempo:          exercise?.tempo || "",
+    intensifiers:   exercise?.intensifiers || "",
     exercise_notes: exercise?.exercise_notes || "",
   });
+
+  // Cardio-specific state
+  const [cardio, setCardio] = useState({
+    cardio_type:      exercise?.sets_json?.[0]?.cardio_type || "",
+    duration_hours:   exercise?.sets_json?.[0]?.duration_hours ?? 0,
+    duration_minutes: exercise?.sets_json?.[0]?.duration_minutes ?? 30,
+    rpe:              exercise?.sets_json?.[0]?.rpe ?? 6,
+    hr_min:           exercise?.sets_json?.[0]?.hr_min ?? "",
+    hr_max:           exercise?.sets_json?.[0]?.hr_max ?? "",
+  });
+
   const [e, setE] = useState({});
   const [saving, setSaving] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
   const [libSearch, setLibSearch] = useState("");
   const [libGroup, setLibGroup] = useState("");
-  const sf = (k,v) => { setE(p=>({...p,[k]:null})); setF(p=>({...p,[k]:v})); };
+  const [expandedSets, setExpandedSets] = useState(new Set());
+  const [showClearWeights, setShowClearWeights] = useState(false);
+  const [imageLoading, setImageLoading] = useState(false);
+  const [showImageUrl, setShowImageUrl] = useState(false);
+  const sf  = (k,v) => { setE(p=>({...p,[k]:null})); setF(p=>({...p,[k]:v})); };
+  const sfc = (k,v) => { setE(p=>({...p,[k]:null})); setCardio(p=>({...p,[k]:v})); };
 
-  function validate_() {
+  // When muscle group changes to Cardio, auto-switch mode
+  function setMuscleGroup(val) {
+    sf("muscle_group", val);
+    if (val === "Cardio") setExerciseType("cardio");
+  }
+
+  function switchExerciseType(t) {
+    setExerciseType(t);
+    if (t === "cardio") sf("muscle_group", "Cardio");
+  }
+
+  // ── Strength validation ────────────────────────────────────────────────────
+  function validateStrength() {
     const err = {};
-    err.name    = validate(f.name,    [rules.required, rules.maxLen(100), rules.noScript]);
-    err.rep_range = validate(f.rep_range, [rules.maxLen(20)]);
-    err.tempo   = validate(f.tempo,   [rules.maxLen(20)]);
+    err.name         = validate(f.name,         [rules.required, rules.maxLen(100), rules.noScript]);
+    err.image_url    = validate(f.image_url,    [rules.safeUrl]);
+    err.rep_range    = validate(f.rep_range,    [rules.maxLen(20)]);
+    err.tempo        = validate(f.tempo,        [rules.maxLen(20)]);
     err.intensifiers = validate(f.intensifiers, [rules.maxLen(200), rules.noScript]);
     err.exercise_notes = validate(f.exercise_notes, [rules.maxLen(500), rules.noScript]);
-    err.rir = validate(f.rir, [rules.numeric, rules.range(0,10)]);
+    err.rir          = validate(f.rir,          [rules.numeric, rules.range(0,10)]);
     f.sets_json.forEach((s,i) => {
       if (validate(s.weight, [rules.numeric, rules.positiveNum])) err[`w${i}`] = "≥ 0";
       if (validate(s.reps,   [rules.numeric, rules.range(0,200)])) err[`r${i}`] = "0–200";
@@ -68,78 +155,166 @@ function ExerciseDialog({ exercise, sessionId, onSave, onClose, units }) {
     return Object.values(err).every(v=>!v);
   }
 
-  // Per-set type: W = Warm Up, M = Main/Working, I = Intensifier
-  const SET_ROW_TYPES = [
-    { value:"W", label:"W", title:"Warm Up",     bg:"rgba(79,142,247,.18)",  color:"var(--accent)" },
-    { value:"M", label:"M", title:"Main",         bg:"rgba(52,199,89,.18)",   color:"var(--green)"  },
-    { value:"I", label:"I", title:"Intensifier",  bg:"rgba(255,149,0,.18)",   color:"var(--orange)" },
-  ];
-
-  function addSet() {
-    // Inherit type from the last set, defaulting to M
-    const lastType = f.sets_json[f.sets_json.length-1]?.type || "M";
-    setF(p=>({...p,sets_json:[...p.sets_json,{set_number:p.sets_json.length+1,type:lastType,weight:0,reps:0}]}));
+  // ── Cardio validation ──────────────────────────────────────────────────────
+  function validateCardio() {
+    const err = {};
+    err.name = validate(f.name, [rules.required, rules.maxLen(100), rules.noScript]);
+    if (!cardio.cardio_type) err.cardio_type = "Select a cardio type";
+    if (cardio.hr_min !== "" && cardio.hr_max !== "" && +cardio.hr_min >= +cardio.hr_max)
+      err.hr_range = "Min HR must be less than max HR";
+    err.exercise_notes = validate(f.exercise_notes, [rules.maxLen(500), rules.noScript]);
+    setE(err);
+    return Object.values(err).every(v=>!v);
   }
-  function removeSet(i) { setF(p=>({...p,sets_json:p.sets_json.filter((_,j)=>j!==i).map((s,j)=>({...s,set_number:j+1}))})); }
-  function updateSet(i,k,v) { setE(ex=>({...ex,[`${k[0]}${i}`]:null})); setF(p=>({...p,sets_json:p.sets_json.map((s,j)=>j===i?{...s,[k]:v}:s)})); }
+
+  // ── Set management (strength) ──────────────────────────────────────────────
+  function addSet() {
+    const last = f.sets_json[f.sets_json.length-1] || {};
+    setF(p=>({...p, sets_json:[...p.sets_json, makeSet({set_number:p.sets_json.length+1, type:last.type||"M"})]}));
+  }
+
+  function duplicateSet(i) {
+    const dup = {...f.sets_json[i], set_number: f.sets_json.length+1};
+    setF(p=>({...p, sets_json:[...p.sets_json, dup]}));
+    setExpandedSets(prev => { const n=new Set(prev); n.add(f.sets_json.length); return n; });
+  }
+
+  function removeSet(i) {
+    setF(p=>({...p, sets_json:p.sets_json.filter((_,j)=>j!==i).map((s,j)=>({...s,set_number:j+1}))}));
+    setExpandedSets(prev => {
+      const n = new Set();
+      prev.forEach(idx => { if(idx < i) n.add(idx); else if(idx > i) n.add(idx-1); });
+      return n;
+    });
+  }
+
+  function updateSet(i,k,v) {
+    setE(ex=>({...ex,[`${k[0]}${i}`]:null}));
+    setF(p=>({...p, sets_json:p.sets_json.map((s,j)=>j===i?{...s,[k]:v}:s)}));
+  }
+
   function cycleSetType(i) {
     const order = ["W","M","I"];
-    setF(p=>({...p,sets_json:p.sets_json.map((s,j)=>j===i?{...s,type:order[(order.indexOf(s.type||"M")+1)%3]}:s)}));
+    setF(p=>({...p, sets_json:p.sets_json.map((s,j)=>j===i?{...s,type:order[(order.indexOf(s.type||"M")+1)%3]}:s)}));
   }
 
-  function pickLibraryExercise(name, group) {
+  function toggleExpand(i) {
+    setExpandedSets(prev => { const n=new Set(prev); n.has(i)?n.delete(i):n.add(i); return n; });
+  }
+
+  function clearAllWeights() {
+    setF(p=>({...p, sets_json:p.sets_json.map(s=>({...s,weight:0}))}));
+    setShowClearWeights(false);
+  }
+
+  async function pickLibraryExercise(name, group) {
     sf("name", name);
-    sf("muscle_group", group);
+    setMuscleGroup(group);
     setShowLibrary(false);
-  }
-
-  async function save() {
-    if (!validate_()) return;
-    setSaving(true);
+    // Auto-fetch the cached exercise image
+    setImageLoading(true);
+    sf("image_url", "");
     try {
-      const payload = { ...f, rir: +f.rir };
-      if (exercise) await apiPut(`/workout-exercises/${exercise.id}`, payload);
-      else          await apiPost(`/workout-exercises`, payload);
-      onSave(); onClose();
-    } catch(err) { setSaving(false); }
+      const data = await apiGet(`/exercise-image?name=${encodeURIComponent(name)}`);
+      if (data.found && data.image_url) {
+        sf("image_url", data.image_url);
+      }
+    } catch(_) { /* silently ignore */ }
+    setImageLoading(false);
   }
 
-  // Library filtered exercises
+  // ── Save ──────────────────────────────────────────────────────────────────
+  async function save() {
+    if (exerciseType === "cardio") {
+      if (!validateCardio()) return;
+      setSaving(true);
+      try {
+        const payload = {
+          ...f,
+          muscle_group: "Cardio",
+          set_type: "working",
+          rir: 0,
+          sets_json: [{
+            cardio_type:      cardio.cardio_type,
+            duration_hours:   +cardio.duration_hours || 0,
+            duration_minutes: +cardio.duration_minutes || 0,
+            rpe:              cardio.rpe !== "" ? +cardio.rpe : null,
+            hr_min:           cardio.hr_min !== "" ? +cardio.hr_min : null,
+            hr_max:           cardio.hr_max !== "" ? +cardio.hr_max : null,
+          }],
+        };
+        if (exercise) await apiPut(`/workout-exercises/${exercise.id}`, payload);
+        else          await apiPost(`/workout-exercises`, payload);
+        onSave(); onClose();
+      } catch(err) { setSaving(false); }
+    } else {
+      if (!validateStrength()) return;
+      setSaving(true);
+      try {
+        const payload = { ...f, rir: +f.rir };
+        if (exercise) await apiPut(`/workout-exercises/${exercise.id}`, payload);
+        else          await apiPost(`/workout-exercises`, payload);
+        onSave(); onClose();
+      } catch(err) { setSaving(false); }
+    }
+  }
+
   const libFiltered = Object.entries(EXERCISE_LIBRARY)
     .filter(([group]) => !libGroup || group === libGroup)
     .map(([group, exs]) => ({ group, exs: exs.filter(e => !libSearch || e.toLowerCase().includes(libSearch.toLowerCase())) }))
     .filter(({exs}) => exs.length > 0);
 
+  const isCardio = exerciseType === "cardio";
+
   return (
     <div className="overlay">
-      <div className="dialog dialog-xl">
+      <div className="dialog dialog-xl" style={{maxHeight:"90vh",overflowY:"auto"}}>
         <div className="dialog-title"><Icon name="dumbbell" size={20}/>{isNew?"Add Exercise":"Edit Exercise"}</div>
 
-        {/* Exercise name + library picker */}
+        {/* ── Exercise Type Toggle ── */}
+        <div style={{display:"flex",gap:0,marginBottom:18,background:"var(--surface2)",borderRadius:8,padding:3,width:"fit-content"}}>
+          {[{val:"strength",icon:"dumbbell",label:"Strength"},{val:"cardio",icon:"activity",label:"Cardio"}].map(opt=>(
+            <button key={opt.val} onClick={()=>switchExerciseType(opt.val)}
+              style={{display:"flex",alignItems:"center",gap:6,padding:"7px 18px",borderRadius:6,border:"none",cursor:"pointer",
+                fontFamily:"var(--font)",fontSize:13,fontWeight:600,transition:"all .15s",
+                background: exerciseType===opt.val ? "var(--accent)" : "transparent",
+                color: exerciseType===opt.val ? "#fff" : "var(--text2)"}}>
+              <Icon name={opt.icon} size={14} color={exerciseType===opt.val?"#fff":"var(--text2)"}/>
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
+        {/* ── Name + Library ── */}
         <div style={{display:"flex",gap:10,marginBottom:16,alignItems:"flex-start"}}>
           <div style={{flex:1}}>
             <FF label="Exercise Name *" error={e.name}>
-              <input value={f.name} className={e.name?"err":""} maxLength={100} onChange={ev=>sf("name",ev.target.value)} placeholder="Exercise name or pick from library…"/>
+              <input value={f.name} className={e.name?"err":""} maxLength={100}
+                onChange={ev=>sf("name",ev.target.value)}
+                placeholder={isCardio?"e.g. Morning Run, Evening Bike Ride…":"Exercise name or pick from library…"}
+                autoFocus/>
             </FF>
           </div>
-          <button className="btn btn-secondary" style={{marginTop:21}} onClick={()=>setShowLibrary(v=>!v)}>
-            <Icon name="layers" size={14}/>Library
-          </button>
+          {!isCardio && (
+            <button className="btn btn-secondary" style={{marginTop:21}} onClick={()=>setShowLibrary(v=>!v)}>
+              <Icon name="layers" size={14}/>Library
+            </button>
+          )}
         </div>
 
         {/* Library panel */}
-        {showLibrary && (
+        {!isCardio && showLibrary && (
           <div style={{background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:10,padding:16,marginBottom:16}}>
             <div style={{display:"flex",gap:10,marginBottom:12}}>
-              <input value={libSearch} onChange={e=>setLibSearch(e.target.value)} placeholder="Search exercises…"
+              <input value={libSearch} onChange={ev=>setLibSearch(ev.target.value)} placeholder="Search exercises…"
                 style={{flex:1,background:"var(--surface)",border:"1px solid var(--border2)",borderRadius:6,padding:"7px 10px",color:"var(--text)",fontFamily:"var(--font)",fontSize:13}}/>
-              <select value={libGroup} onChange={e=>setLibGroup(e.target.value)}
+              <select value={libGroup} onChange={ev=>setLibGroup(ev.target.value)}
                 style={{background:"var(--surface)",border:"1px solid var(--border2)",borderRadius:6,padding:"7px 10px",color:"var(--text)",fontFamily:"var(--font)",fontSize:13}}>
                 <option value="">All Muscle Groups</option>
                 {ALL_MUSCLE_GROUPS.map(g=><option key={g} value={g}>{g}</option>)}
               </select>
             </div>
-            <div style={{maxHeight:240,overflowY:"auto"}}>
+            <div style={{maxHeight:220,overflowY:"auto"}}>
               {libFiltered.map(({group,exs})=>(
                 <div key={group} style={{marginBottom:12}}>
                   <div style={{fontSize:11,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",letterSpacing:.5,marginBottom:6}}>{group}</div>
@@ -155,90 +330,299 @@ function ExerciseDialog({ exercise, sessionId, onSave, onClose, units }) {
           </div>
         )}
 
-        <div className="form-grid" style={{marginBottom:16}}>
-          <FF label="Muscle Group">
-            <select value={f.muscle_group} onChange={ev=>sf("muscle_group",ev.target.value)}>
-              <option value="">— Select —</option>
-              {ALL_MUSCLE_GROUPS.map(g=><option key={g} value={g}>{g}</option>)}
-            </select>
-          </FF>
-          <FF label="Set Type">
-            <select value={f.set_type} onChange={ev=>sf("set_type",ev.target.value)}>
-              {SET_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
-            </select>
-          </FF>
-          <FF label="Rep Range" error={e.rep_range} hint="e.g. 8-12, 6-8">
-            <input value={f.rep_range} className={e.rep_range?"err":""} maxLength={20} onChange={ev=>sf("rep_range",ev.target.value)} placeholder="e.g. 8–12"/>
-          </FF>
-          <FF label="RIR (Reps in Reserve)" error={e.rir} hint="0=failure, 2=2 reps left">
-            <input type="number" min="0" max="10" value={f.rir} className={e.rir?"err":""} onChange={ev=>sf("rir",ev.target.value)}/>
-          </FF>
-          <FF label="Tempo" error={e.tempo} hint="e.g. 3-1-2-0 (exc-pause-con-pause)">
-            <input value={f.tempo} className={e.tempo?"err":""} maxLength={20} onChange={ev=>sf("tempo",ev.target.value)} placeholder="3-1-2-0"/>
-          </FF>
-          <FF label="Intensifiers" error={e.intensifiers} hint="e.g. Myo-reps, Rest-Pause, Giant Set" full>
-            <input value={f.intensifiers} className={e.intensifiers?"err":""} maxLength={200} onChange={ev=>sf("intensifiers",ev.target.value)} placeholder="Techniques used…"/>
-          </FF>
-          <FF label="Notes" error={e.exercise_notes} full>
-            <textarea rows={2} value={f.exercise_notes} className={e.exercise_notes?"err":""} maxLength={500} onChange={ev=>sf("exercise_notes",ev.target.value)} placeholder="Cues, coaching notes…"/>
-          </FF>
+        {/* ── Exercise Image ── */}
+        <div style={{marginBottom:16}}>
+          {imageLoading && (
+            <div style={{display:"flex",alignItems:"center",gap:8,padding:"12px 0",color:"var(--muted)",fontSize:13}}>
+              <Spinner/> Looking up exercise image…
+            </div>
+          )}
+          {!imageLoading && f.image_url && (
+            <div style={{position:"relative",borderRadius:10,overflow:"hidden",background:"var(--surface2)",marginBottom:8}}>
+              <img src={f.image_url} alt="Exercise" onError={ev=>{ev.target.closest(".ex-img-wrap").style.display="none";}}
+                className="ex-img-wrap"
+                style={{width:"100%",maxHeight:220,objectFit:"cover",display:"block"}}/>
+              <div style={{position:"absolute",top:8,right:8,display:"flex",gap:6}}>
+                <button className="btn btn-ghost btn-xs"
+                  style={{background:"rgba(0,0,0,.55)",color:"#fff",backdropFilter:"blur(4px)"}}
+                  onClick={()=>setShowImageUrl(v=>!v)}>
+                  <Icon name="edit" size={11}/>{showImageUrl?"Hide URL":"Change"}
+                </button>
+                <button className="btn btn-ghost btn-xs"
+                  style={{background:"rgba(0,0,0,.55)",color:"#fff",backdropFilter:"blur(4px)"}}
+                  onClick={()=>sf("image_url","")}>
+                  <Icon name="x" size={11}/>Remove
+                </button>
+              </div>
+            </div>
+          )}
+          {!imageLoading && !f.image_url && (
+            <button className="btn btn-ghost btn-sm" style={{fontSize:12,color:"var(--muted)"}}
+              onClick={()=>setShowImageUrl(v=>!v)}>
+              <Icon name="plus" size={12}/>{showImageUrl?"Hide":"Add image URL"}
+            </button>
+          )}
+          {showImageUrl && (
+            <FF label="Image URL" hint="Must start with https://" error={e.image_url}>
+              <input value={f.image_url} maxLength={500} className={e.image_url?"err":""}
+                onChange={ev=>sf("image_url",ev.target.value)} placeholder="https://…" autoFocus/>
+            </FF>
+          )}
         </div>
 
-        {/* Sets */}
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-          <div style={{fontWeight:700,fontSize:13}}>Sets ({f.sets_json.length})</div>
-          <button className="btn btn-secondary btn-sm" onClick={addSet}><Icon name="plus" size={13}/>Add Set</button>
-        </div>
-        <div style={{background:"var(--surface2)",borderRadius:8,padding:"10px 12px",marginBottom:16}}>
-          {/* Column headers */}
-          <div style={{display:"grid",gridTemplateColumns:"36px 52px 1fr 1fr auto",gap:8,marginBottom:6}}>
-            {["Set","Type",`Weight (${wtLabel(units)})`, "Reps",""].map(h=>(
-              <div key={h} style={{fontSize:11,fontWeight:700,color:"var(--muted)",textTransform:"uppercase"}}>{h}</div>
-            ))}
+        {/* ════════════════ CARDIO FORM ════════════════ */}
+        {isCardio && (
+          <div>
+            {/* Cardio Type */}
+            <FF label="Cardio Type *" error={e.cardio_type}>
+              <select value={cardio.cardio_type} className={e.cardio_type?"err":""}
+                onChange={ev=>sfc("cardio_type",ev.target.value)}>
+                <option value="">— Select activity —</option>
+                {CARDIO_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
+              </select>
+            </FF>
+
+            {/* Duration */}
+            <div style={{marginTop:16,marginBottom:16}}>
+              <label style={{fontSize:12,fontWeight:700,color:"var(--text2)",display:"block",marginBottom:8}}>Duration</label>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <input type="number" min="0" max="24" value={cardio.duration_hours}
+                    onChange={ev=>sfc("duration_hours",Math.max(0,+ev.target.value))}
+                    style={{width:64,background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:6,
+                      padding:"8px 10px",color:"var(--text)",fontFamily:"var(--font)",fontSize:15,fontWeight:700,textAlign:"center"}}/>
+                  <span style={{fontSize:13,color:"var(--muted)"}}>hrs</span>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <input type="number" min="0" max="59" value={cardio.duration_minutes}
+                    onChange={ev=>sfc("duration_minutes",Math.max(0,Math.min(59,+ev.target.value)))}
+                    style={{width:64,background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:6,
+                      padding:"8px 10px",color:"var(--text)",fontFamily:"var(--font)",fontSize:15,fontWeight:700,textAlign:"center"}}/>
+                  <span style={{fontSize:13,color:"var(--muted)"}}>min</span>
+                </div>
+                {(cardio.duration_hours > 0 || cardio.duration_minutes > 0) && (
+                  <span style={{fontSize:12,color:"var(--muted)",marginLeft:4}}>
+                    {cardio.duration_hours > 0 ? `${cardio.duration_hours}h ` : ""}{cardio.duration_minutes > 0 ? `${cardio.duration_minutes}m` : ""}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* RPE */}
+            <div style={{marginBottom:16}}>
+              <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:8}}>
+                <label style={{fontSize:12,fontWeight:700,color:"var(--text2)"}}>RPE (Rate of Perceived Exertion)</label>
+                <span style={{fontSize:13,fontWeight:700,color:"var(--accent)"}}>
+                  {cardio.rpe} — <span style={{fontWeight:400,color:"var(--text2)"}}>{RPE_LABELS[cardio.rpe] || ""}</span>
+                </span>
+              </div>
+              <div style={{display:"flex",gap:4}}>
+                {[1,2,3,4,5,6,7,8,9,10].map(n => {
+                  const active = cardio.rpe === n;
+                  const col = n <= 3 ? "var(--green)" : n <= 5 ? "var(--yellow)" : n <= 7 ? "var(--orange)" : "var(--red)";
+                  return (
+                    <button key={n} onClick={()=>sfc("rpe",n)}
+                      style={{flex:1,padding:"9px 0",borderRadius:6,border:"none",cursor:"pointer",fontWeight:700,fontSize:13,
+                        fontFamily:"var(--font)",transition:"all .1s",
+                        background: active ? col : "var(--surface2)",
+                        color: active ? "#fff" : "var(--text2)"}}>
+                      {n}
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
+                <span style={{fontSize:10,color:"var(--muted)"}}>Very Easy</span>
+                <span style={{fontSize:10,color:"var(--muted)"}}>Max Effort</span>
+              </div>
+            </div>
+
+            {/* Heart Rate Range */}
+            <div style={{marginBottom:16}}>
+              <label style={{fontSize:12,fontWeight:700,color:"var(--text2)",display:"block",marginBottom:8}}>
+                Heart Rate Range (bpm)
+                {e.hr_range && <span style={{color:"var(--red)",marginLeft:8,fontSize:11,fontWeight:400}}>{e.hr_range}</span>}
+              </label>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+                <input type="number" min="40" max="240" value={cardio.hr_min}
+                  placeholder="Min"
+                  onChange={ev=>sfc("hr_min",ev.target.value)}
+                  style={{width:80,background:"var(--surface2)",border:`1px solid ${e.hr_range?"var(--red)":"var(--border2)"}`,borderRadius:6,
+                    padding:"8px 10px",color:"var(--text)",fontFamily:"var(--font)",fontSize:15,fontWeight:700,textAlign:"center"}}/>
+                <span style={{color:"var(--muted)",fontSize:14}}>—</span>
+                <input type="number" min="40" max="240" value={cardio.hr_max}
+                  placeholder="Max"
+                  onChange={ev=>sfc("hr_max",ev.target.value)}
+                  style={{width:80,background:"var(--surface2)",border:`1px solid ${e.hr_range?"var(--red)":"var(--border2)"}`,borderRadius:6,
+                    padding:"8px 10px",color:"var(--text)",fontFamily:"var(--font)",fontSize:15,fontWeight:700,textAlign:"center"}}/>
+                <span style={{fontSize:13,color:"var(--muted)"}}>bpm</span>
+              </div>
+              {/* HR Zone presets */}
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                {HR_ZONES.map(z=>(
+                  <button key={z.label} onClick={()=>{sfc("hr_min",z.min);sfc("hr_max",z.max);}}
+                    title={`${z.title}: ${z.min}–${z.max} bpm`}
+                    style={{padding:"5px 10px",borderRadius:6,border:`1px solid ${z.color}`,cursor:"pointer",
+                      background:"transparent",color:z.color,fontFamily:"var(--font)",fontSize:11,fontWeight:700,
+                      display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
+                    <span>{z.label}</span>
+                    <span style={{fontWeight:400,fontSize:10,color:"var(--muted)"}}>{z.title}</span>
+                  </button>
+                ))}
+              </div>
+              <div style={{fontSize:11,color:"var(--muted)",marginTop:6}}>
+                Click a zone to autofill approximate BPM ranges
+              </div>
+            </div>
+
+            {/* Notes */}
+            <FF label="Notes" error={e.exercise_notes}>
+              <textarea rows={2} value={f.exercise_notes} className={e.exercise_notes?"err":""} maxLength={500}
+                onChange={ev=>sf("exercise_notes",ev.target.value)} placeholder="Route, terrain, goals, observations…"/>
+            </FF>
           </div>
-          {f.sets_json.map((s,i)=>{
-            const t = SET_ROW_TYPES.find(x=>x.value===(s.type||"M")) || SET_ROW_TYPES[1];
-            return (
-              <div key={i} style={{display:"grid",gridTemplateColumns:"36px 52px 1fr 1fr auto",gap:8,marginBottom:6,alignItems:"center"}}>
-                {/* Set number */}
-                <div style={{fontWeight:700,textAlign:"center",color:"var(--muted)",fontSize:13}}>{s.set_number}</div>
-                {/* Type toggle — click cycles W → M → I */}
-                <button
-                  title={`${t.title} — click to change`}
-                  onClick={()=>cycleSetType(i)}
-                  style={{width:"100%",padding:"6px 0",borderRadius:6,border:"none",cursor:"pointer",fontWeight:800,fontSize:12,
-                    background:t.bg, color:t.color, fontFamily:"var(--font)", letterSpacing:.5}}>
-                  {t.value}
+        )}
+
+        {/* ════════════════ STRENGTH FORM ════════════════ */}
+        {!isCardio && (
+          <div>
+            {/* Exercise metadata */}
+            <div className="form-grid" style={{marginBottom:16}}>
+              <FF label="Muscle Group">
+                <select value={f.muscle_group} onChange={ev=>setMuscleGroup(ev.target.value)}>
+                  <option value="">— Select —</option>
+                  {ALL_MUSCLE_GROUPS.map(g=><option key={g} value={g}>{g}</option>)}
+                </select>
+              </FF>
+              <FF label="Set Type">
+                <select value={f.set_type} onChange={ev=>sf("set_type",ev.target.value)}>
+                  {SET_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
+              </FF>
+              <FF label="Default Rep Range" error={e.rep_range} hint="e.g. 8-12">
+                <input value={f.rep_range} className={e.rep_range?"err":""} maxLength={20}
+                  onChange={ev=>sf("rep_range",ev.target.value)} placeholder="e.g. 8–12"/>
+              </FF>
+              <FF label="Default RIR" error={e.rir} hint="0=failure">
+                <input type="number" min="0" max="10" value={f.rir} className={e.rir?"err":""}
+                  onChange={ev=>sf("rir",ev.target.value)}/>
+              </FF>
+              <FF label="Default Tempo" error={e.tempo} hint="e.g. 3-1-2-0">
+                <input value={f.tempo} className={e.tempo?"err":""} maxLength={20}
+                  onChange={ev=>sf("tempo",ev.target.value)} placeholder="3-1-2-0"/>
+              </FF>
+              <FF label="Intensifiers" error={e.intensifiers} hint="e.g. Myo-reps, Rest-Pause" full>
+                <input value={f.intensifiers} className={e.intensifiers?"err":""} maxLength={200}
+                  onChange={ev=>sf("intensifiers",ev.target.value)} placeholder="Techniques used…"/>
+              </FF>
+              <FF label="Exercise Notes" error={e.exercise_notes} full>
+                <textarea rows={2} value={f.exercise_notes} className={e.exercise_notes?"err":""} maxLength={500}
+                  onChange={ev=>sf("exercise_notes",ev.target.value)} placeholder="Cues, coaching notes…"/>
+              </FF>
+            </div>
+
+            {/* Sets header */}
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+              <div style={{fontWeight:700,fontSize:13}}>Sets ({f.sets_json.length})</div>
+              <div style={{display:"flex",gap:8}}>
+                <button className="btn btn-ghost btn-sm" style={{color:"var(--red)"}} onClick={()=>setShowClearWeights(true)}>
+                  <Icon name="refresh_ccw" size={12}/>Clear Weights
                 </button>
-                {/* Weight */}
-                <div>
-                  <input type="number" min="0" step="0.5"
-                    value={wtDisplay(s.weight, units)}
-                    className={e[`w${i}`]?"err":""}
-                    onChange={ev=>updateSet(i,"weight", wtToKg(ev.target.value, units))}
-                    style={{width:"100%",background:"var(--surface)",border:`1px solid ${e[`w${i}`]?"var(--red)":"var(--border2)"}`,borderRadius:6,padding:"6px 8px",color:"var(--text)",fontFamily:"var(--font)",fontSize:13}}/>
-                </div>
-                {/* Reps */}
-                <div>
-                  <input type="number" min="0" max="200" value={s.reps} className={e[`r${i}`]?"err":""}
-                    onChange={ev=>updateSet(i,"reps",ev.target.value)}
-                    style={{width:"100%",background:"var(--surface)",border:`1px solid ${e[`r${i}`]?"var(--red)":"var(--border2)"}`,borderRadius:6,padding:"6px 8px",color:"var(--text)",fontFamily:"var(--font)",fontSize:13}}/>
-                </div>
-                <button className="btn btn-ghost btn-sm btn-icon" onClick={()=>removeSet(i)} disabled={f.sets_json.length<=1}><Icon name="x" size={13}/></button>
+                <button className="btn btn-secondary btn-sm" onClick={addSet}>
+                  <Icon name="plus" size={13}/>Add Set
+                </button>
               </div>
-            );
-          })}
-          {/* Legend */}
-          <div style={{display:"flex",gap:12,marginTop:8,paddingTop:8,borderTop:"1px solid var(--border2)"}}>
-            {SET_ROW_TYPES.map(t=>(
-              <div key={t.value} style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:"var(--muted)"}}>
-                <span style={{background:t.bg,color:t.color,fontWeight:800,padding:"1px 7px",borderRadius:4,fontSize:11}}>{t.value}</span>
-                {t.title}
+            </div>
+
+            <div style={{background:"var(--surface2)",borderRadius:8,padding:"10px 12px",marginBottom:16}}>
+              <div style={{display:"grid",gridTemplateColumns:"32px 48px 1fr 72px auto",gap:8,marginBottom:6}}>
+                {["#","Type",`Weight (${wtLabel(units)})`, "Reps",""].map((h,hi)=>(
+                  <div key={hi} style={{fontSize:11,fontWeight:700,color:"var(--muted)",textTransform:"uppercase"}}>{h}</div>
+                ))}
               </div>
-            ))}
-            <span style={{fontSize:11,color:"var(--muted)",marginLeft:"auto"}}>Click type to cycle</span>
+
+              {f.sets_json.map((s,i)=>{
+                const t = SET_ROW_TYPES.find(x=>x.value===(s.type||"M")) || SET_ROW_TYPES[1];
+                const expanded = expandedSets.has(i);
+                const hasPerSetData = s.rep_range || s.rir !== "" || s.tempo || s.notes;
+                return (
+                  <div key={i} style={{marginBottom:8,borderRadius:6,border:`1px solid ${expanded?"var(--border2)":"transparent"}`,overflow:"hidden"}}>
+                    <div style={{display:"grid",gridTemplateColumns:"32px 48px 1fr 72px auto",gap:8,alignItems:"center",
+                      padding:expanded?"8px 10px 6px":"2px 0",background:expanded?"var(--surface)":"transparent"}}>
+                      <div style={{fontWeight:700,textAlign:"center",color:"var(--muted)",fontSize:13}}>{s.set_number}</div>
+                      <button title={`${t.title} — click to cycle`} onClick={()=>cycleSetType(i)}
+                        style={{padding:"6px 0",borderRadius:6,border:"none",cursor:"pointer",fontWeight:800,fontSize:12,
+                          background:t.bg,color:t.color,fontFamily:"var(--font)",letterSpacing:.5}}>
+                        {t.value}
+                      </button>
+                      <input type="number" min="0" step="0.5" value={wtDisplay(s.weight,units)} className={e[`w${i}`]?"err":""}
+                        onChange={ev=>updateSet(i,"weight",wtToKg(ev.target.value,units))}
+                        style={{width:"100%",background:"var(--surface)",border:`1px solid ${e[`w${i}`]?"var(--red)":"var(--border2)"}`,
+                          borderRadius:6,padding:"6px 8px",color:"var(--text)",fontFamily:"var(--font)",fontSize:13}}/>
+                      <input type="number" min="0" max="200" value={s.reps} className={e[`r${i}`]?"err":""}
+                        onChange={ev=>updateSet(i,"reps",ev.target.value)}
+                        style={{width:"100%",background:"var(--surface)",border:`1px solid ${e[`r${i}`]?"var(--red)":"var(--border2)"}`,
+                          borderRadius:6,padding:"6px 8px",color:"var(--text)",fontFamily:"var(--font)",fontSize:13}}/>
+                      <div style={{display:"flex",gap:4}}>
+                        <button className="btn btn-ghost btn-xs btn-icon" title="Per-set details" onClick={()=>toggleExpand(i)}
+                          style={{color:hasPerSetData?"var(--accent)":"var(--muted)"}}>
+                          <Icon name={expanded?"chevron_up":"chevron_down"} size={12}/>
+                        </button>
+                        <button className="btn btn-ghost btn-xs btn-icon" title="Duplicate" onClick={()=>duplicateSet(i)}>
+                          <Icon name="copy" size={12}/>
+                        </button>
+                        <button className="btn btn-ghost btn-xs btn-icon" title="Remove" onClick={()=>removeSet(i)} disabled={f.sets_json.length<=1}>
+                          <Icon name="x" size={12}/>
+                        </button>
+                      </div>
+                    </div>
+
+                    {expanded && (
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,padding:"8px 10px 10px",background:"var(--surface)"}}>
+                        <div>
+                          <label style={{fontSize:11,fontWeight:700,color:"var(--muted)",display:"block",marginBottom:4}}>REP RANGE</label>
+                          <input value={s.rep_range||""} maxLength={20} onChange={ev=>updateSet(i,"rep_range",ev.target.value)}
+                            placeholder={f.rep_range||"e.g. 8–12"}
+                            style={{width:"100%",background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:6,padding:"6px 8px",color:"var(--text)",fontFamily:"var(--font)",fontSize:13}}/>
+                        </div>
+                        <div>
+                          <label style={{fontSize:11,fontWeight:700,color:"var(--muted)",display:"block",marginBottom:4}}>RIR</label>
+                          <input type="number" min="0" max="10"
+                            value={s.rir===""||s.rir==null?"":s.rir}
+                            onChange={ev=>updateSet(i,"rir",ev.target.value===""?"":+ev.target.value)}
+                            placeholder={f.rir!=null&&f.rir!==""?String(f.rir):"0–10"}
+                            style={{width:"100%",background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:6,padding:"6px 8px",color:"var(--text)",fontFamily:"var(--font)",fontSize:13}}/>
+                        </div>
+                        <div>
+                          <label style={{fontSize:11,fontWeight:700,color:"var(--muted)",display:"block",marginBottom:4}}>TEMPO</label>
+                          <input value={s.tempo||""} maxLength={20} onChange={ev=>updateSet(i,"tempo",ev.target.value)}
+                            placeholder={f.tempo||"3-1-2-0"}
+                            style={{width:"100%",background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:6,padding:"6px 8px",color:"var(--text)",fontFamily:"var(--font)",fontSize:13}}/>
+                        </div>
+                        <div style={{gridColumn:"1/-1"}}>
+                          <label style={{fontSize:11,fontWeight:700,color:"var(--muted)",display:"block",marginBottom:4}}>SET NOTES</label>
+                          <input value={s.notes||""} maxLength={200} onChange={ev=>updateSet(i,"notes",ev.target.value)}
+                            placeholder="e.g. Pause at bottom, cluster reps…"
+                            style={{width:"100%",background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:6,padding:"6px 8px",color:"var(--text)",fontFamily:"var(--font)",fontSize:13}}/>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              <div style={{display:"flex",gap:12,marginTop:8,paddingTop:8,borderTop:"1px solid var(--border2)",flexWrap:"wrap"}}>
+                {SET_ROW_TYPES.map(t=>(
+                  <div key={t.value} style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:"var(--muted)"}}>
+                    <span style={{background:t.bg,color:t.color,fontWeight:800,padding:"1px 7px",borderRadius:4,fontSize:11}}>{t.value}</span>
+                    {t.title}
+                  </div>
+                ))}
+                <span style={{fontSize:11,color:"var(--muted)",marginLeft:"auto"}}>▾ expand for per-set details</span>
+              </div>
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="dialog-actions">
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
@@ -246,13 +630,122 @@ function ExerciseDialog({ exercise, sessionId, onSave, onClose, units }) {
             {saving?<Spinner/>:<Icon name="save" size={14}/>}{isNew?"Add Exercise":"Save Changes"}
           </button>
         </div>
+
+        {/* Clear weights confirmation */}
+        {showClearWeights && (
+          <div className="overlay" style={{zIndex:200}}>
+            <div className="dialog" style={{maxWidth:360}}>
+              <div className="dialog-title"><Icon name="refresh_ccw" size={18}/>Clear All Weights</div>
+              <p style={{fontSize:14,color:"var(--text2)",margin:"0 0 20px"}}>
+                Zero out the weight for all {f.sets_json.length} set{f.sets_json.length!==1?"s":""}. Reps and other fields are unchanged.
+              </p>
+              <div className="dialog-actions">
+                <button className="btn btn-ghost" onClick={()=>setShowClearWeights(false)}>Cancel</button>
+                <button className="btn btn-danger" onClick={clearAllWeights}>Clear Weights</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-// ── Session Dialog ─────────────────────────────────────────────────────────────
-function SessionDialog({ session, planId, defaultDay, onSave, onClose }) {
+// ── Template Picker Dialog ─────────────────────────────────────────────────────
+function TemplatePickerDialog({ athleteId, onSelect, onClose }) {
+  const [sessions, setSessions] = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [search, setSearch]     = useState("");
+  const [selected, setSelected] = useState(null);
+
+  useEffect(() => {
+    apiGet(`/athletes/${athleteId}/workout-sessions/all`)
+      .then(d => setSessions(d))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [athleteId]);
+
+  const filtered = sessions.filter(s => {
+    const q = search.toLowerCase();
+    return !q ||
+      (s.session_title||s.day_of_week).toLowerCase().includes(q) ||
+      s.plan_title.toLowerCase().includes(q) ||
+      s.muscle_groups.join(" ").toLowerCase().includes(q);
+  });
+
+  // Group by plan
+  const byPlan = {};
+  filtered.forEach(s => {
+    if (!byPlan[s.plan_title]) byPlan[s.plan_title] = [];
+    byPlan[s.plan_title].push(s);
+  });
+
+  function confirmSelect() {
+    if (!selected) return;
+    onSelect(selected);
+    onClose();
+  }
+
+  return (
+    <div className="overlay" style={{zIndex:200}}>
+      <div className="dialog dialog-md" style={{maxHeight:"80vh",display:"flex",flexDirection:"column"}}>
+        <div className="dialog-title"><Icon name="copy" size={20}/>Load Session Template</div>
+        <p style={{fontSize:13,color:"var(--text2)",margin:"0 0 14px"}}>
+          Pick a previously saved session. Its exercises will be copied into your new session.
+        </p>
+        <input value={search} onChange={ev=>setSearch(ev.target.value)} placeholder="Search sessions…"
+          style={{background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:8,padding:"8px 12px",
+            color:"var(--text)",fontFamily:"var(--font)",fontSize:13,marginBottom:12}}/>
+        <div style={{flex:1,overflowY:"auto",minHeight:0}}>
+          {loading && <div style={{color:"var(--muted)",fontSize:13,padding:16}}>Loading…</div>}
+          {!loading && filtered.length===0 && (
+            <div style={{color:"var(--muted)",fontSize:13,padding:16}}>No sessions found.</div>
+          )}
+          {Object.entries(byPlan).map(([planTitle, planSessions])=>(
+            <div key={planTitle} style={{marginBottom:16}}>
+              <div style={{fontSize:11,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",letterSpacing:.5,marginBottom:8}}>
+                {planTitle}
+              </div>
+              {planSessions.map(s=>(
+                <div key={s.id}
+                  onClick={()=>setSelected(s)}
+                  style={{padding:"10px 14px",borderRadius:8,border:`2px solid ${selected?.id===s.id?"var(--accent)":"var(--border)"}`,
+                    marginBottom:6,cursor:"pointer",background:selected?.id===s.id?"var(--accent-dim)":"var(--surface2)",
+                    transition:"border-color .15s,background .15s"}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                    <div>
+                      <div style={{fontWeight:700,fontSize:14}}>{s.session_title||s.day_of_week}</div>
+                      <div style={{fontSize:12,color:"var(--text2)",marginTop:2}}>
+                        {s.day_of_week}
+                        {s.muscle_groups?.length>0 && " · "+s.muscle_groups.join(", ")}
+                      </div>
+                    </div>
+                    <div style={{fontSize:12,color:"var(--muted)",textAlign:"right"}}>
+                      <div>{s.exercises?.length||0} exercise{s.exercises?.length!==1?"s":""}</div>
+                      {s.exercises?.slice(0,3).map(ex=>(
+                        <div key={ex.id} style={{fontSize:11}}>{ex.name}</div>
+                      ))}
+                      {s.exercises?.length>3&&<div style={{fontSize:11}}>+{s.exercises.length-3} more</div>}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+        <div className="dialog-actions" style={{marginTop:12}}>
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" onClick={confirmSelect} disabled={!selected}>
+            <Icon name="copy" size={14}/>Use This Template
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Session Dialog (create / edit + optional template) ─────────────────────────
+function SessionDialog({ session, planId, defaultDay, athleteId, onSave, onClose }) {
   const isNew = !session;
   const [f, setF] = useState({
     plan_id:       planId,
@@ -261,10 +754,15 @@ function SessionDialog({ session, planId, defaultDay, onSave, onClose }) {
     muscle_groups: session?.muscle_groups || [],
     session_notes: session?.session_notes || "",
   });
-  const [e, setE] = useState({});
-  const [saving, setSaving] = useState(false);
+  const [e, setE]               = useState({});
+  const [saving, setSaving]     = useState(false);
+  const [template, setTemplate] = useState(null);       // selected template session
+  const [showPicker, setShowPicker] = useState(false);
   const sf = (k,v) => { setE(p=>({...p,[k]:null})); setF(p=>({...p,[k]:v})); };
-  function toggleMuscle(m) { setF(p=>({...p,muscle_groups:p.muscle_groups.includes(m)?p.muscle_groups.filter(x=>x!==m):[...p.muscle_groups,m]})); }
+
+  function toggleMuscle(m) {
+    setF(p=>({...p, muscle_groups:p.muscle_groups.includes(m)?p.muscle_groups.filter(x=>x!==m):[...p.muscle_groups,m]}));
+  }
 
   function validate_() {
     const err = {};
@@ -278,23 +776,61 @@ function SessionDialog({ session, planId, defaultDay, onSave, onClose }) {
     if (!validate_()) return;
     setSaving(true);
     try {
-      if (session) await apiPut(`/workout-sessions/${session.id}`, {...f, plan_id:planId});
-      else         await apiPost(`/workout-sessions`, f);
-      onSave(); onClose();
+      if (session) {
+        // Edit existing
+        await apiPut(`/workout-sessions/${session.id}`, {...f, plan_id:planId});
+        onSave(); onClose();
+      } else if (template) {
+        // Clone from template
+        await apiPost(`/workout-sessions/${template.id}/clone`, f);
+        onSave(); onClose();
+      } else {
+        // Fresh session
+        await apiPost(`/workout-sessions`, f);
+        onSave(); onClose();
+      }
     } catch(err) { setSaving(false); }
   }
 
   return (
     <div className="overlay" style={{zIndex:150}}>
       <div className="dialog dialog-md">
-        <div className="dialog-title"><Icon name="calendar" size={20}/>{isNew?"Add Session":"Edit Session"}</div>
+        <div className="dialog-title">
+          <Icon name="calendar" size={20}/>{isNew?"New Session":"Edit Session"}
+        </div>
+
+        {/* Template picker strip (new sessions only) */}
+        {isNew && (
+          <div style={{background:"var(--surface2)",borderRadius:8,padding:"10px 14px",marginBottom:16,display:"flex",alignItems:"center",gap:12}}>
+            <Icon name="copy" size={16} color="var(--muted)"/>
+            <div style={{flex:1}}>
+              {template
+                ? <div style={{fontSize:13}}>
+                    <span style={{color:"var(--accent)",fontWeight:700}}>{template.session_title||template.day_of_week}</span>
+                    <span style={{color:"var(--text2)",marginLeft:8}}>{template.exercises?.length||0} exercises · from "{template.plan_title}"</span>
+                  </div>
+                : <span style={{fontSize:13,color:"var(--muted)"}}>Start from scratch, or load a previous session as a template</span>
+              }
+            </div>
+            {template
+              ? <button className="btn btn-ghost btn-sm" onClick={()=>setTemplate(null)}>Clear</button>
+              : <button className="btn btn-secondary btn-sm" onClick={()=>setShowPicker(true)}>
+                  <Icon name="layers" size={13}/>Load Template
+                </button>
+            }
+          </div>
+        )}
+
         <div className="form-grid" style={{marginBottom:14}}>
           <FF label="Day of Week">
             <select value={f.day_of_week} onChange={ev=>sf("day_of_week",ev.target.value)}>
               {WORKOUT_DAYS.map(d=><option key={d} value={d}>{d}</option>)}
             </select>
           </FF>
-          <FF label="Session Title" error={e.session_title}><input value={f.session_title} className={e.session_title?"err":""} maxLength={100} onChange={ev=>sf("session_title",ev.target.value)} placeholder="e.g. Push Day A"/></FF>
+          <FF label="Session Title" error={e.session_title}>
+            <input value={f.session_title} className={e.session_title?"err":""} maxLength={100}
+              onChange={ev=>sf("session_title",ev.target.value)} placeholder="e.g. Push Day A"/>
+          </FF>
         </div>
         <FF label="Muscle Groups">
           <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:4}}>
@@ -304,12 +840,39 @@ function SessionDialog({ session, planId, defaultDay, onSave, onClose }) {
           </div>
         </FF>
         <div style={{height:12}}/>
-        <FF label="Session Notes" error={e.session_notes}><textarea rows={2} value={f.session_notes} className={e.session_notes?"err":""} maxLength={500} onChange={ev=>sf("session_notes",ev.target.value)} placeholder="Warm-up protocol, coaching cues…"/></FF>
+        <FF label="Session Notes" error={e.session_notes}>
+          <textarea rows={2} value={f.session_notes} className={e.session_notes?"err":""} maxLength={500}
+            onChange={ev=>sf("session_notes",ev.target.value)} placeholder="Warm-up protocol, coaching cues…"/>
+        </FF>
+
+        {template && (
+          <div style={{marginTop:12,padding:"10px 14px",background:"var(--accent-dim)",borderRadius:8,border:"1px solid var(--accent)"}}>
+            <div style={{fontSize:12,fontWeight:700,color:"var(--accent)",marginBottom:6}}>Exercises to be copied ({template.exercises?.length}):</div>
+            {template.exercises?.map(ex=>(
+              <div key={ex.id} style={{fontSize:12,color:"var(--text2)",marginBottom:2}}>
+                • {ex.name}
+                {ex.sets_json?.length>0&&<span style={{color:"var(--muted)",marginLeft:6}}>{ex.sets_json.length} set{ex.sets_json.length!==1?"s":""}</span>}
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="dialog-actions">
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" onClick={save} disabled={saving}>{saving?<Spinner/>:<Icon name="save" size={14}/>}{isNew?"Create Session":"Save Changes"}</button>
+          <button className="btn btn-primary" onClick={save} disabled={saving}>
+            {saving?<Spinner/>:<Icon name="save" size={14}/>}
+            {isNew?(template?"Create from Template":"Create Session"):"Save Changes"}
+          </button>
         </div>
       </div>
+
+      {showPicker && (
+        <TemplatePickerDialog
+          athleteId={athleteId}
+          onSelect={sess=>setTemplate(sess)}
+          onClose={()=>setShowPicker(false)}
+        />
+      )}
     </div>
   );
 }
@@ -317,8 +880,14 @@ function SessionDialog({ session, planId, defaultDay, onSave, onClose }) {
 // ── Workout Plan Form ──────────────────────────────────────────────────────────
 function WorkoutPlanFormDialog({ plan, athleteId, onSave, onClose }) {
   const isNew = !plan;
-  const [f, setF] = useState({ athlete_id:athleteId, title:plan?.title||"", start_date:plan?.start_date||"", end_date:plan?.end_date||"", notes:plan?.notes||"" });
-  const [e, setE] = useState({});
+  const [f, setF] = useState({
+    athlete_id: athleteId,
+    title:      plan?.title || "",
+    start_date: plan?.start_date || "",
+    end_date:   plan?.end_date || "",
+    notes:      plan?.notes || "",
+  });
+  const [e, setE]           = useState({});
   const [saving, setSaving] = useState(false);
   const sf = (k,v) => { setE(p=>({...p,[k]:null})); setF(p=>({...p,[k]:v})); };
 
@@ -346,14 +915,27 @@ function WorkoutPlanFormDialog({ plan, athleteId, onSave, onClose }) {
       <div className="dialog">
         <div className="dialog-title"><Icon name="dumbbell" size={20}/>{isNew?"New Workout Plan":"Edit Plan"}</div>
         <div className="form-grid" style={{marginBottom:14}}>
-          <FF label="Plan Title *" error={e.title} full><input value={f.title} className={e.title?"err":""} maxLength={100} onChange={ev=>sf("title",ev.target.value)} placeholder="e.g. 12-Week Hypertrophy" autoFocus/></FF>
-          <FF label="Start Date"><input type="date" value={f.start_date} onChange={ev=>sf("start_date",ev.target.value)}/></FF>
-          <FF label="End Date" error={e.end_date}><input type="date" className={e.end_date?"err":""} value={f.end_date} onChange={ev=>sf("end_date",ev.target.value)}/></FF>
+          <FF label="Plan Title *" error={e.title} full>
+            <input value={f.title} className={e.title?"err":""} maxLength={100}
+              onChange={ev=>sf("title",ev.target.value)} placeholder="e.g. 12-Week Hypertrophy" autoFocus/>
+          </FF>
+          <FF label="Start Date">
+            <input type="date" value={f.start_date} onChange={ev=>sf("start_date",ev.target.value)}/>
+          </FF>
+          <FF label="End Date" error={e.end_date}>
+            <input type="date" className={e.end_date?"err":""} value={f.end_date}
+              onChange={ev=>sf("end_date",ev.target.value)}/>
+          </FF>
         </div>
-        <FF label="Notes" error={e.notes}><textarea rows={3} value={f.notes} className={e.notes?"err":""} maxLength={500} onChange={ev=>sf("notes",ev.target.value)} placeholder="Plan overview, goals…"/></FF>
+        <FF label="Notes" error={e.notes}>
+          <textarea rows={3} value={f.notes} className={e.notes?"err":""} maxLength={500}
+            onChange={ev=>sf("notes",ev.target.value)} placeholder="Plan overview, goals…"/>
+        </FF>
         <div className="dialog-actions">
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" onClick={save} disabled={saving}>{saving?<Spinner/>:<Icon name="save" size={14}/>}{isNew?"Create Plan":"Save Changes"}</button>
+          <button className="btn btn-primary" onClick={save} disabled={saving}>
+            {saving?<Spinner/>:<Icon name="save" size={14}/>}{isNew?"Create Plan":"Save Changes"}
+          </button>
         </div>
       </div>
     </div>
@@ -363,17 +945,17 @@ function WorkoutPlanFormDialog({ plan, athleteId, onSave, onClose }) {
 // ── Workout Plan Tab ───────────────────────────────────────────────────────────
 function WorkoutPlanTab({ athleteId, toast, units }) {
   units = units || "metric";
-  const [plans, setPlans]           = useState([]);
+  const [plans, setPlans]               = useState([]);
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [selectedSession, setSelectedSession] = useState(null);
   const [showPlanForm, setShowPlanForm] = useState(false);
-  const [editPlan, setEditPlan]     = useState(null);
+  const [editPlan, setEditPlan]         = useState(null);
   const [showSessionForm, setShowSessionForm] = useState(false);
-  const [editSession, setEditSession] = useState(null);
-  const [sessionDay, setSessionDay]  = useState("Monday");
-  const [showExForm, setShowExForm]  = useState(false);
-  const [editEx, setEditEx]          = useState(null);
-  const { confirm, Confirmer }       = useConfirm();
+  const [editSession, setEditSession]   = useState(null);
+  const [sessionDay, setSessionDay]     = useState("Monday");
+  const [showExForm, setShowExForm]     = useState(false);
+  const [editEx, setEditEx]             = useState(null);
+  const { confirm, Confirmer }          = useConfirm();
 
   useEffect(() => { loadPlans(); }, [athleteId]);
 
@@ -381,7 +963,6 @@ function WorkoutPlanTab({ athleteId, toast, units }) {
     try {
       const data = await apiGet(`/athletes/${athleteId}/workout-plans`);
       setPlans(data);
-      // Keep selection valid
       if (selectedPlan && !data.find(p=>p.id===selectedPlan)) setSelectedPlan(null);
     } catch(err) { toast.show(err.message,"error"); }
   }
@@ -391,8 +972,7 @@ function WorkoutPlanTab({ athleteId, toast, units }) {
     if (!ok) return;
     await apiDel(`/athletes/${athleteId}/workout-plans/${plan.id}`);
     if (selectedPlan===plan.id) setSelectedPlan(null);
-    loadPlans();
-    toast.show("Plan deleted","success");
+    loadPlans(); toast.show("Plan deleted","success");
   }
 
   async function deleteSession(sess) {
@@ -400,27 +980,34 @@ function WorkoutPlanTab({ athleteId, toast, units }) {
     if (!ok) return;
     await apiDel(`/workout-sessions/${sess.id}`);
     if (selectedSession===sess.id) setSelectedSession(null);
-    loadPlans();
-    toast.show("Session deleted","success");
+    loadPlans(); toast.show("Session deleted","success");
   }
 
   async function deleteExercise(ex) {
     const ok = await confirm("Delete Exercise",`Remove "${ex.name}" from this session?`);
     if (!ok) return;
     await apiDel(`/workout-exercises/${ex.id}`);
-    loadPlans();
-    toast.show("Exercise removed","success");
+    loadPlans(); toast.show("Exercise removed","success");
   }
 
   const currentPlan    = plans.find(p=>p.id===selectedPlan);
   const currentSession = currentPlan?.sessions?.find(s=>s.id===selectedSession);
+
+  // SET_DISPLAY used in exercise rows
+  const SET_DISPLAY = {
+    W:{bg:"rgba(79,142,247,.18)", color:"var(--accent)", title:"Warm Up"},
+    M:{bg:"rgba(52,199,89,.18)",  color:"var(--green)",  title:"Main"},
+    I:{bg:"rgba(255,149,0,.18)",  color:"var(--orange)", title:"Intensifier"},
+  };
 
   return (
     <div>
       {/* Plans header */}
       <div className="section-header">
         <div className="section-title">Workout Plans</div>
-        <button className="btn btn-primary" onClick={()=>{setEditPlan(null);setShowPlanForm(true);}}><Icon name="plus" size={14}/>New Plan</button>
+        <button className="btn btn-primary" onClick={()=>{setEditPlan(null);setShowPlanForm(true);}}>
+          <Icon name="plus" size={14}/>New Plan
+        </button>
       </div>
 
       {plans.length===0 && <EmptyState icon="dumbbell" title="No Plans Yet" message="Create a workout plan to get started."/>}
@@ -429,7 +1016,7 @@ function WorkoutPlanTab({ athleteId, toast, units }) {
       <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:20}}>
         {plans.map(plan=>(
           <div key={plan.id} style={{background:"var(--surface)",border:`1px solid ${selectedPlan===plan.id?"var(--accent)":"var(--border)"}`,borderRadius:12,overflow:"hidden"}}>
-            {/* Plan header row */}
+            {/* Plan header */}
             <div style={{display:"flex",alignItems:"center",gap:12,padding:"14px 18px",cursor:"pointer"}}
               onClick={()=>{ setSelectedPlan(selectedPlan===plan.id?null:plan.id); setSelectedSession(null); }}>
               <Icon name="layers" size={16} color={selectedPlan===plan.id?"var(--accent)":"var(--muted)"}/>
@@ -440,7 +1027,7 @@ function WorkoutPlanTab({ athleteId, toast, units }) {
                   {" · "}{plan.sessions?.length||0} session{plan.sessions?.length!==1?"s":""}
                 </div>
               </div>
-              <div style={{display:"flex",gap:6}} onClick={e2=>e2.stopPropagation()}>
+              <div style={{display:"flex",gap:6}} onClick={ev=>ev.stopPropagation()}>
                 <button className="btn btn-ghost btn-sm btn-icon" onClick={()=>{setEditPlan(plan);setShowPlanForm(true);}}><Icon name="edit" size={14}/></button>
                 <button className="btn btn-ghost btn-sm btn-icon" onClick={()=>deletePlan(plan)}><Icon name="trash" size={14}/></button>
               </div>
@@ -468,7 +1055,7 @@ function WorkoutPlanTab({ athleteId, toast, units }) {
                                 {sess.muscle_groups?.length>0&&<div className="session-muscles">{sess.muscle_groups.slice(0,2).join(", ")}{sess.muscle_groups.length>2?`+${sess.muscle_groups.length-2}`:""}</div>}
                                 <div style={{fontSize:10,color:"var(--muted)",marginTop:2}}>{sess.exercises?.length||0} ex</div>
                               </div>
-                              <div style={{display:"flex",gap:2}} onClick={e2=>e2.stopPropagation()}>
+                              <div style={{display:"flex",gap:2}} onClick={ev=>ev.stopPropagation()}>
                                 <button className="btn btn-ghost btn-xs btn-icon" onClick={()=>{setEditSession(sess);setSessionDay(day);setShowSessionForm(true);}}><Icon name="edit" size={11}/></button>
                                 <button className="btn btn-ghost btn-xs btn-icon" onClick={()=>deleteSession(sess)}><Icon name="trash" size={11}/></button>
                               </div>
@@ -506,59 +1093,115 @@ function WorkoutPlanTab({ athleteId, toast, units }) {
 
                     {currentSession.exercises?.length===0&&<div style={{color:"var(--muted)",fontSize:13,padding:"16px 0"}}>No exercises yet. Add your first exercise!</div>}
 
-                    {currentSession.exercises?.map(ex=>(
+                    {currentSession.exercises?.map((ex,exIdx)=>(
                       <div key={ex.id} className="exercise-row">
                         <div className="exercise-header">
-                          <div>
-                            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-                              <div className="exercise-name">{ex.name}</div>
-                              <span className={`set-type-badge ${SET_TYPES.find(t=>t.value===ex.set_type)?.cls||"st-working"}`}>
-                                {SET_TYPES.find(t=>t.value===ex.set_type)?.label||ex.set_type}
-                              </span>
+                          <div style={{display:"flex",gap:14,alignItems:"flex-start",flex:1}}>
+                            {/* Exercise image thumbnail */}
+                            {ex.image_url && (
+                              <img src={ex.image_url} alt={ex.name}
+                                style={{width:52,height:52,objectFit:"cover",borderRadius:8,flexShrink:0,border:"1px solid var(--border)"}}
+                                onError={ev=>{ev.target.style.display="none";}}/>
+                            )}
+                            <div style={{flex:1}}>
+                              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+                                <div className="exercise-name">{ex.name}</div>
+                                <span className={`set-type-badge ${SET_TYPES.find(t=>t.value===ex.set_type)?.cls||"st-working"}`}>
+                                  {SET_TYPES.find(t=>t.value===ex.set_type)?.label||ex.set_type}
+                                </span>
+                              </div>
+                              <div className="exercise-meta" style={{display:"flex",gap:16,flexWrap:"wrap"}}>
+                                {ex.muscle_group&&<span><Icon name="tag" size={11}/> {ex.muscle_group}</span>}
+                                {ex.rep_range&&<span>Reps: {ex.rep_range}</span>}
+                                {ex.rir!==null&&ex.rir!==undefined&&<span>RIR: {ex.rir}</span>}
+                                {ex.tempo&&<span>Tempo: {ex.tempo}</span>}
+                                {ex.intensifiers&&<span style={{color:"var(--accent)"}}>{ex.intensifiers}</span>}
+                              </div>
+                              {ex.exercise_notes&&<div style={{fontSize:11,color:"var(--muted)",marginTop:4,fontStyle:"italic"}}>{ex.exercise_notes}</div>}
                             </div>
-                            <div className="exercise-meta" style={{display:"flex",gap:16,flexWrap:"wrap"}}>
-                              {ex.muscle_group&&<span><Icon name="tag" size={11}/> {ex.muscle_group}</span>}
-                              {ex.rep_range&&<span>Reps: {ex.rep_range}</span>}
-                              {ex.rir!==null&&ex.rir!==undefined&&<span>RIR: {ex.rir}</span>}
-                              {ex.tempo&&<span>Tempo: {ex.tempo}</span>}
-                              {ex.intensifiers&&<span style={{color:"var(--accent)"}}>{ex.intensifiers}</span>}
-                            </div>
-                            {ex.exercise_notes&&<div style={{fontSize:11,color:"var(--muted)",marginTop:4,fontStyle:"italic"}}>{ex.exercise_notes}</div>}
                           </div>
-                          <div style={{display:"flex",gap:6}}>
+                          <div style={{display:"flex",gap:6,flexShrink:0}}>
                             <button className="btn btn-ghost btn-sm btn-icon" onClick={()=>{setEditEx(ex);setShowExForm(true);}}><Icon name="edit" size={14}/></button>
                             <button className="btn btn-ghost btn-sm btn-icon" onClick={()=>deleteExercise(ex)}><Icon name="trash" size={14}/></button>
                           </div>
                         </div>
-                        {ex.sets_json?.length>0&&(
-                          <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,marginTop:6}}>
-                            <thead><tr>
-                              {["Set","Type",`Weight (${wtLabel(units)})`,"Reps"].map(h=>(
-                                <th key={h} style={{textAlign:"left",padding:"4px 10px",color:"var(--muted)",fontWeight:700,fontSize:11,textTransform:"uppercase",borderBottom:"1px solid var(--border)"}}>{h}</th>
-                              ))}
-                            </tr></thead>
-                            <tbody>{ex.sets_json.map((s,i)=>{
-                              const SET_DISPLAY = {
-                                W:{bg:"rgba(79,142,247,.18)", color:"var(--accent)",  title:"Warm Up"},
-                                M:{bg:"rgba(52,199,89,.18)",  color:"var(--green)",   title:"Main"},
-                                I:{bg:"rgba(255,149,0,.18)",  color:"var(--orange)",  title:"Intensifier"},
-                              };
-                              const td = SET_DISPLAY[s.type||"M"] || SET_DISPLAY.M;
-                              return (
-                                <tr key={i}>
-                                  <td style={{padding:"6px 10px",fontWeight:700,color:"var(--muted)"}}>{s.set_number}</td>
-                                  <td style={{padding:"6px 10px"}}>
-                                    <span title={td.title} style={{background:td.bg,color:td.color,fontWeight:800,padding:"2px 8px",borderRadius:4,fontSize:11,letterSpacing:.5}}>
-                                      {s.type||"M"}
-                                    </span>
-                                  </td>
-                                  <td style={{padding:"6px 10px"}}>{wtDisplay(s.weight, units)} {wtLabel(units)}</td>
-                                  <td style={{padding:"6px 10px"}}>{s.reps} reps</td>
-                                </tr>
-                              );
-                            })}</tbody>
-                          </table>
-                        )}
+
+                        {ex.sets_json?.length>0&&(()=>{
+                          const cd = ex.sets_json[0];
+                          if (cd?.cardio_type !== undefined) {
+                            const hrs = cd.duration_hours || 0;
+                            const min = cd.duration_minutes || 0;
+                            const durStr = hrs > 0 ? `${hrs}h ${min}m` : `${min} min`;
+                            const rpeCol = cd.rpe <= 3 ? "var(--green)" : cd.rpe <= 5 ? "var(--yellow)" : cd.rpe <= 7 ? "var(--orange)" : "var(--red)";
+                            const zone = cd.hr_min && cd.hr_max ? HR_ZONES.find(z=>cd.hr_min>=z.min&&cd.hr_max<=z.max) : null;
+                            return (
+                              <div style={{marginTop:10,display:"flex",gap:10,flexWrap:"wrap"}}>
+                                {cd.cardio_type && (
+                                  <span style={{display:"flex",alignItems:"center",gap:5,background:"var(--accent-dim)",color:"var(--accent)",
+                                    padding:"5px 10px",borderRadius:6,fontSize:12,fontWeight:700}}>
+                                    <Icon name="activity" size={12}/>
+                                    {cd.cardio_type}
+                                  </span>
+                                )}
+                                {(hrs > 0 || min > 0) && (
+                                  <span style={{display:"flex",alignItems:"center",gap:5,background:"var(--surface2)",
+                                    padding:"5px 10px",borderRadius:6,fontSize:12,color:"var(--text2)",fontWeight:600}}>
+                                    ⏱ {durStr}
+                                  </span>
+                                )}
+                                {cd.rpe != null && (
+                                  <span style={{display:"flex",alignItems:"center",gap:5,background:"var(--surface2)",
+                                    padding:"5px 10px",borderRadius:6,fontSize:12,fontWeight:600,color:rpeCol}}>
+                                    RPE {cd.rpe} · {RPE_LABELS[cd.rpe]||""}
+                                  </span>
+                                )}
+                                {cd.hr_min && cd.hr_max && (
+                                  <span style={{display:"flex",alignItems:"center",gap:5,background:"var(--surface2)",
+                                    padding:"5px 10px",borderRadius:6,fontSize:12,color:"var(--text2)",fontWeight:600}}>
+                                    ❤ {cd.hr_min}–{cd.hr_max} bpm
+                                    {zone && <span style={{color:zone.color,marginLeft:4}}>{zone.label} {zone.title}</span>}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          }
+                          // Strength: show sets table
+                          return (
+                            <div style={{marginTop:8,overflowX:"auto"}}>
+                              <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                                <thead><tr>
+                                  {["Set","Type",`Weight (${wtLabel(units)})`,"Reps","Rep Range","RIR","Tempo","Notes"].map(h=>(
+                                    <th key={h} style={{textAlign:"left",padding:"4px 8px",color:"var(--muted)",fontWeight:700,fontSize:11,textTransform:"uppercase",borderBottom:"1px solid var(--border)",whiteSpace:"nowrap"}}>{h}</th>
+                                  ))}
+                                </tr></thead>
+                                <tbody>{ex.sets_json.map((s,si)=>{
+                                  const td = SET_DISPLAY[s.type||"M"] || SET_DISPLAY.M;
+                                  const dispRepRange = s.rep_range || ex.rep_range || "—";
+                                  const dispRir      = (s.rir!==""&&s.rir!=null) ? s.rir : (ex.rir!=null?ex.rir:"—");
+                                  const dispTempo    = s.tempo || ex.tempo || "—";
+                                  return (
+                                    <tr key={si} style={{borderBottom:"1px solid var(--border)"}}>
+                                      <td style={{padding:"6px 8px",fontWeight:700,color:"var(--muted)"}}>{s.set_number}</td>
+                                      <td style={{padding:"6px 8px"}}>
+                                        <span title={td.title} style={{background:td.bg,color:td.color,fontWeight:800,padding:"2px 8px",borderRadius:4,fontSize:11,letterSpacing:.5}}>
+                                          {s.type||"M"}
+                                        </span>
+                                      </td>
+                                      <td style={{padding:"6px 8px"}}>{wtDisplay(s.weight,units)} {wtLabel(units)}</td>
+                                      <td style={{padding:"6px 8px"}}>{s.reps} reps</td>
+                                      <td style={{padding:"6px 8px",color:"var(--text2)"}}>{dispRepRange}</td>
+                                      <td style={{padding:"6px 8px",color:"var(--text2)"}}>{dispRir}</td>
+                                      <td style={{padding:"6px 8px",color:"var(--text2)"}}>{dispTempo}</td>
+                                      <td style={{padding:"6px 8px",color:"var(--text2)",fontStyle:s.notes?"normal":"italic",maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                                        {s.notes||"—"}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}</tbody>
+                              </table>
+                            </div>
+                          );
+                        })()}
                       </div>
                     ))}
                   </div>
@@ -570,9 +1213,21 @@ function WorkoutPlanTab({ athleteId, toast, units }) {
       </div>
 
       {/* Dialogs */}
-      {showPlanForm && <WorkoutPlanFormDialog plan={editPlan} athleteId={athleteId} onSave={()=>{loadPlans();toast.show(editPlan?"Plan updated":"Plan created","success");setShowPlanForm(false);setEditPlan(null);}} onClose={()=>{setShowPlanForm(false);setEditPlan(null);}}/>}
-      {showSessionForm && <SessionDialog session={editSession} planId={selectedPlan} defaultDay={sessionDay} onSave={()=>{loadPlans();toast.show(editSession?"Session updated":"Session created","success");setShowSessionForm(false);setEditSession(null);}} onClose={()=>{setShowSessionForm(false);setEditSession(null);}}/>}
-      {showExForm && selectedSession && <ExerciseDialog exercise={editEx} sessionId={selectedSession} units={units} onSave={()=>{loadPlans();toast.show(editEx?"Exercise updated":"Exercise added","success");setShowExForm(false);setEditEx(null);}} onClose={()=>{setShowExForm(false);setEditEx(null);}}/>}
+      {showPlanForm && (
+        <WorkoutPlanFormDialog plan={editPlan} athleteId={athleteId}
+          onSave={()=>{loadPlans();toast.show(editPlan?"Plan updated":"Plan created","success");setShowPlanForm(false);setEditPlan(null);}}
+          onClose={()=>{setShowPlanForm(false);setEditPlan(null);}}/>
+      )}
+      {showSessionForm && (
+        <SessionDialog session={editSession} planId={selectedPlan} defaultDay={sessionDay} athleteId={athleteId}
+          onSave={()=>{loadPlans();toast.show(editSession?"Session updated":"Session created","success");setShowSessionForm(false);setEditSession(null);}}
+          onClose={()=>{setShowSessionForm(false);setEditSession(null);}}/>
+      )}
+      {showExForm && selectedSession && (
+        <ExerciseDialog exercise={editEx} sessionId={selectedSession} units={units}
+          onSave={()=>{loadPlans();toast.show(editEx?"Exercise updated":"Exercise added","success");setShowExForm(false);setEditEx(null);}}
+          onClose={()=>{setShowExForm(false);setEditEx(null);}}/>
+      )}
       {Confirmer}
     </div>
   );

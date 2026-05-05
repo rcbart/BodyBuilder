@@ -1,90 +1,560 @@
 // ─── Meal Plan Tab ────────────────────────────────────────────────────────────
 
 const MACRO_DEFS = [
-  {key:"protein",label:"Protein",unit:"g"},
-  {key:"carbs",  label:"Carbohydrates",unit:"g"},
-  {key:"fat",    label:"Fat",unit:"g"},
-  {key:"fiber",  label:"Fiber",unit:"g"},
-  {key:"sodium", label:"Sodium",unit:"mg"},
-  {key:"potassium",label:"Potassium",unit:"mg"},
+  { key:"protein",   label:"Protein",     unit:"g"  },
+  { key:"carbs",     label:"Carbohydrates",unit:"g" },
+  { key:"fat",       label:"Fat",         unit:"g"  },
+  { key:"fiber",     label:"Fiber",       unit:"g"  },
+  { key:"sodium",    label:"Sodium",      unit:"mg" },
+  { key:"potassium", label:"Potassium",   unit:"mg" },
 ];
 
-const SOURCE_TYPES = ["protein","carb","fat"];
-const SOURCE_LABELS = {protein:"Protein Source",carb:"Carb Source",fat:"Fat Source"};
-const SOURCE_BADGE  = {protein:"src-protein",carb:"src-carb",fat:"src-fat"};
+const SOURCE_TYPES = [
+  { key:"protein",    label:"Protein",     badge:"src-protein"    },
+  { key:"carb",       label:"Carbs",       badge:"src-carb"       },
+  { key:"fat",        label:"Fats",        badge:"src-fat"        },
+  { key:"vegetable",  label:"Vegetables",  badge:"src-vegetable"  },
+  { key:"fruit",      label:"Fruits",      badge:"src-fruit"      },
+  { key:"dairy",      label:"Dairy",       badge:"src-dairy"      },
+  { key:"supplement", label:"Supplements", badge:"src-supplement" },
+];
+const srcBadge = (key) => SOURCE_TYPES.find(t => t.key === key)?.badge || "src-protein";
+const srcLabel = (key) => SOURCE_TYPES.find(t => t.key === key)?.label || key;
 
-// ── Meal Item Dialog ──────────────────────────────────────────────────────────
-function MealItemDialog({ item, mealId, onSave, onClose, units }) {
-  units = units || "metric";
-  const isNew = !item;
+// ── Comprehensive built-in food library (per 100 g) ───────────────────────────
+// Fields: n=name, cat=source_type_key, kcal, p=protein, c=carbs, f=fat,
+//         fi=fiber, na=sodium(mg), k=potassium(mg)
+const FOOD_LIBRARY = [
+  // ── Protein sources ──
+  { n:"Chicken Breast (raw)",      cat:"protein", kcal:165, p:31.0, c:0.0,  f:3.6,  fi:0.0, na:74,  k:256 },
+  { n:"Chicken Breast (cooked)",   cat:"protein", kcal:187, p:35.1, c:0.0,  f:4.0,  fi:0.0, na:84,  k:291 },
+  { n:"Chicken Thigh (raw)",       cat:"protein", kcal:177, p:21.9, c:0.0,  f:9.4,  fi:0.0, na:82,  k:229 },
+  { n:"Turkey Breast",             cat:"protein", kcal:135, p:30.0, c:0.0,  f:1.0,  fi:0.0, na:70,  k:298 },
+  { n:"Ground Turkey 93%",         cat:"protein", kcal:163, p:20.2, c:0.0,  f:9.0,  fi:0.0, na:77,  k:290 },
+  { n:"Lean Ground Beef 93%",      cat:"protein", kcal:172, p:26.0, c:0.0,  f:7.0,  fi:0.0, na:75,  k:318 },
+  { n:"Lean Ground Beef 96%",      cat:"protein", kcal:137, p:24.3, c:0.0,  f:4.5,  fi:0.0, na:63,  k:303 },
+  { n:"Beef Steak (Sirloin)",      cat:"protein", kcal:207, p:26.4, c:0.0,  f:11.1, fi:0.0, na:57,  k:343 },
+  { n:"Beef Ribeye",               cat:"protein", kcal:291, p:24.5, c:0.0,  f:21.0, fi:0.0, na:59,  k:283 },
+  { n:"Pork Tenderloin",           cat:"protein", kcal:143, p:26.2, c:0.0,  f:3.5,  fi:0.0, na:47,  k:425 },
+  { n:"Bison",                     cat:"protein", kcal:146, p:28.4, c:0.0,  f:2.9,  fi:0.0, na:56,  k:361 },
+  { n:"Salmon (Atlantic)",         cat:"protein", kcal:208, p:20.4, c:0.0,  f:13.4, fi:0.0, na:59,  k:363 },
+  { n:"Tuna (canned in water)",    cat:"protein", kcal:109, p:25.5, c:0.0,  f:0.8,  fi:0.0, na:320, k:237 },
+  { n:"Tilapia",                   cat:"protein", kcal:96,  p:20.1, c:0.0,  f:1.7,  fi:0.0, na:52,  k:302 },
+  { n:"Cod",                       cat:"protein", kcal:82,  p:17.8, c:0.0,  f:0.7,  fi:0.0, na:54,  k:413 },
+  { n:"Shrimp",                    cat:"protein", kcal:99,  p:24.0, c:0.3,  f:0.3,  fi:0.0, na:111, k:259 },
+  { n:"Whitefish",                 cat:"protein", kcal:134, p:19.4, c:0.0,  f:5.9,  fi:0.0, na:55,  k:346 },
+  { n:"Whole Egg",                 cat:"protein", kcal:155, p:12.6, c:1.1,  f:10.6, fi:0.0, na:124, k:126 },
+  { n:"Egg White",                 cat:"protein", kcal:52,  p:10.9, c:0.7,  f:0.2,  fi:0.0, na:166, k:163 },
+  { n:"Whey Protein Powder",       cat:"protein", kcal:400, p:80.0, c:8.0,  f:5.0,  fi:1.0, na:200, k:500 },
+  { n:"Casein Protein Powder",     cat:"protein", kcal:371, p:75.0, c:10.0, f:3.0,  fi:1.0, na:450, k:480 },
+  { n:"Cottage Cheese (1%)",       cat:"protein", kcal:72,  p:12.4, c:2.7,  f:1.0,  fi:0.0, na:406, k:104 },
+  { n:"Canned Salmon",             cat:"protein", kcal:139, p:20.5, c:0.0,  f:6.0,  fi:0.0, na:324, k:316 },
+  { n:"Tempeh",                    cat:"protein", kcal:195, p:19.0, c:9.4,  f:11.0, fi:0.0, na:14,  k:401 },
+
+  // ── Carb sources ──
+  { n:"White Rice (cooked)",       cat:"carb", kcal:130, p:2.7,  c:28.2, f:0.3, fi:0.4,  na:1,  k:35  },
+  { n:"Brown Rice (cooked)",       cat:"carb", kcal:123, p:2.7,  c:25.6, f:1.0, fi:1.8,  na:5,  k:79  },
+  { n:"Jasmine Rice (cooked)",     cat:"carb", kcal:129, p:2.7,  c:28.0, f:0.3, fi:0.3,  na:1,  k:28  },
+  { n:"Oats (dry)",                cat:"carb", kcal:389, p:17.0, c:66.3, f:6.9, fi:10.6, na:2,  k:429 },
+  { n:"Oats (cooked)",             cat:"carb", kcal:71,  p:2.5,  c:12.0, f:1.5, fi:1.7,  na:49, k:61  },
+  { n:"Sweet Potato (raw)",        cat:"carb", kcal:86,  p:1.6,  c:20.1, f:0.1, fi:3.0,  na:55, k:337 },
+  { n:"Sweet Potato (cooked)",     cat:"carb", kcal:90,  p:2.0,  c:20.7, f:0.1, fi:3.3,  na:36, k:475 },
+  { n:"White Potato",              cat:"carb", kcal:77,  p:2.0,  c:17.5, f:0.1, fi:2.2,  na:6,  k:421 },
+  { n:"Pasta (dry)",               cat:"carb", kcal:371, p:13.0, c:74.7, f:1.5, fi:2.9,  na:6,  k:215 },
+  { n:"Whole Wheat Pasta (dry)",   cat:"carb", kcal:348, p:13.1, c:68.5, f:2.5, fi:7.2,  na:6,  k:266 },
+  { n:"Bread (Whole Wheat)",       cat:"carb", kcal:247, p:13.0, c:41.0, f:4.2, fi:7.4,  na:400,k:248 },
+  { n:"Sourdough Bread",           cat:"carb", kcal:289, p:9.5,  c:55.7, f:2.2, fi:2.4,  na:561,k:121 },
+  { n:"Quinoa (cooked)",           cat:"carb", kcal:120, p:4.4,  c:21.3, f:1.9, fi:2.8,  na:7,  k:172 },
+  { n:"Corn",                      cat:"carb", kcal:86,  p:3.2,  c:19.0, f:1.2, fi:2.7,  na:15, k:270 },
+  { n:"Lentils (cooked)",          cat:"carb", kcal:116, p:9.0,  c:20.1, f:0.4, fi:7.9,  na:2,  k:369 },
+  { n:"Black Beans (cooked)",      cat:"carb", kcal:132, p:8.9,  c:23.7, f:0.5, fi:8.7,  na:1,  k:355 },
+  { n:"Chickpeas (cooked)",        cat:"carb", kcal:164, p:8.9,  c:27.4, f:2.6, fi:7.6,  na:7,  k:291 },
+  { n:"Rice Cakes",                cat:"carb", kcal:387, p:8.2,  c:81.6, f:2.8, fi:1.4,  na:10, k:110 },
+  { n:"Cream of Rice (dry)",       cat:"carb", kcal:366, p:7.0,  c:80.5, f:1.0, fi:0.5,  na:5,  k:69  },
+  { n:"Bagel (plain)",             cat:"carb", kcal:272, p:10.5, c:53.4, f:1.7, fi:2.3,  na:477,k:111 },
+
+  // ── Fat sources ──
+  { n:"Olive Oil",                 cat:"fat", kcal:884, p:0.0,  c:0.0,  f:100.0,fi:0.0, na:2,  k:1   },
+  { n:"Coconut Oil",               cat:"fat", kcal:862, p:0.0,  c:0.0,  f:100.0,fi:0.0, na:0,  k:0   },
+  { n:"MCT Oil",                   cat:"fat", kcal:862, p:0.0,  c:0.0,  f:100.0,fi:0.0, na:0,  k:0   },
+  { n:"Avocado",                   cat:"fat", kcal:160, p:2.0,  c:8.5,  f:14.7, fi:6.7, na:7,  k:485 },
+  { n:"Almonds",                   cat:"fat", kcal:579, p:21.2, c:21.7, f:49.9, fi:12.5,na:1,  k:733 },
+  { n:"Walnuts",                   cat:"fat", kcal:654, p:15.2, c:13.7, f:65.2, fi:6.7, na:2,  k:441 },
+  { n:"Cashews",                   cat:"fat", kcal:553, p:18.2, c:30.2, f:43.9, fi:3.3, na:12, k:660 },
+  { n:"Peanuts",                   cat:"fat", kcal:567, p:25.8, c:16.1, f:49.2, fi:8.5, na:18, k:705 },
+  { n:"Macadamia Nuts",            cat:"fat", kcal:718, p:7.9,  c:13.8, f:75.8, fi:8.6, na:5,  k:368 },
+  { n:"Peanut Butter (natural)",   cat:"fat", kcal:598, p:25.1, c:20.1, f:51.4, fi:6.0, na:17, k:558 },
+  { n:"Almond Butter",             cat:"fat", kcal:614, p:20.8, c:18.8, f:55.5, fi:10.3,na:7,  k:740 },
+  { n:"Flaxseed",                  cat:"fat", kcal:534, p:18.3, c:28.9, f:42.2, fi:27.3,na:30, k:813 },
+  { n:"Chia Seeds",                cat:"fat", kcal:486, p:16.5, c:42.1, f:30.7, fi:34.4,na:16, k:407 },
+  { n:"Hemp Seeds",                cat:"fat", kcal:553, p:31.6, c:8.7,  f:48.7, fi:4.0, na:5,  k:859 },
+  { n:"Sunflower Seeds",           cat:"fat", kcal:584, p:20.8, c:20.0, f:51.5, fi:8.6, na:9,  k:645 },
+
+  // ── Vegetables ──
+  { n:"Broccoli",                  cat:"vegetable", kcal:34,  p:2.8, c:6.6,  f:0.4, fi:2.6, na:33, k:316 },
+  { n:"Spinach",                   cat:"vegetable", kcal:23,  p:2.9, c:3.6,  f:0.4, fi:2.2, na:79, k:558 },
+  { n:"Kale",                      cat:"vegetable", kcal:49,  p:4.3, c:8.8,  f:0.9, fi:3.6, na:38, k:491 },
+  { n:"Asparagus",                 cat:"vegetable", kcal:20,  p:2.2, c:3.9,  f:0.1, fi:2.1, na:2,  k:202 },
+  { n:"Green Beans",               cat:"vegetable", kcal:31,  p:1.8, c:7.0,  f:0.1, fi:2.7, na:6,  k:209 },
+  { n:"Bell Pepper",               cat:"vegetable", kcal:31,  p:1.0, c:6.0,  f:0.3, fi:2.1, na:4,  k:211 },
+  { n:"Zucchini",                  cat:"vegetable", kcal:17,  p:1.2, c:3.1,  f:0.3, fi:1.0, na:8,  k:261 },
+  { n:"Cauliflower",               cat:"vegetable", kcal:25,  p:1.9, c:5.0,  f:0.3, fi:2.0, na:30, k:299 },
+  { n:"Cucumber",                  cat:"vegetable", kcal:15,  p:0.7, c:3.6,  f:0.1, fi:0.5, na:2,  k:147 },
+  { n:"Mushrooms",                 cat:"vegetable", kcal:22,  p:3.1, c:3.3,  f:0.3, fi:1.0, na:5,  k:318 },
+  { n:"Edamame",                   cat:"vegetable", kcal:122, p:10.9,c:9.9,  f:5.2, fi:5.2, na:63, k:436 },
+  { n:"Brussels Sprouts",          cat:"vegetable", kcal:43,  p:3.4, c:8.9,  f:0.3, fi:3.8, na:25, k:389 },
+  { n:"Celery",                    cat:"vegetable", kcal:16,  p:0.7, c:3.0,  f:0.2, fi:1.6, na:80, k:260 },
+  { n:"Tomato",                    cat:"vegetable", kcal:18,  p:0.9, c:3.9,  f:0.2, fi:1.2, na:5,  k:237 },
+  { n:"Onion",                     cat:"vegetable", kcal:40,  p:1.1, c:9.3,  f:0.1, fi:1.7, na:4,  k:146 },
+  { n:"Mixed Greens / Lettuce",    cat:"vegetable", kcal:14,  p:1.4, c:2.2,  f:0.2, fi:1.8, na:28, k:200 },
+  { n:"Beets",                     cat:"vegetable", kcal:43,  p:1.6, c:9.6,  f:0.2, fi:2.8, na:78, k:325 },
+  { n:"Peas",                      cat:"vegetable", kcal:81,  p:5.4, c:14.5, f:0.4, fi:5.1, na:5,  k:244 },
+
+  // ── Fruits ──
+  { n:"Banana",                    cat:"fruit", kcal:89,  p:1.1, c:22.8, f:0.3, fi:2.6, na:1, k:358 },
+  { n:"Apple",                     cat:"fruit", kcal:52,  p:0.3, c:13.8, f:0.2, fi:2.4, na:1, k:107 },
+  { n:"Blueberries",               cat:"fruit", kcal:57,  p:0.7, c:14.5, f:0.3, fi:2.4, na:1, k:77  },
+  { n:"Strawberries",              cat:"fruit", kcal:32,  p:0.7, c:7.7,  f:0.3, fi:2.0, na:1, k:153 },
+  { n:"Mango",                     cat:"fruit", kcal:60,  p:0.8, c:15.0, f:0.4, fi:1.6, na:1, k:168 },
+  { n:"Orange",                    cat:"fruit", kcal:47,  p:0.9, c:11.8, f:0.1, fi:2.4, na:0, k:181 },
+  { n:"Pineapple",                 cat:"fruit", kcal:50,  p:0.5, c:13.1, f:0.1, fi:1.4, na:1, k:109 },
+  { n:"Grapes",                    cat:"fruit", kcal:69,  p:0.7, c:18.1, f:0.2, fi:0.9, na:2, k:191 },
+  { n:"Watermelon",                cat:"fruit", kcal:30,  p:0.6, c:7.6,  f:0.2, fi:0.4, na:1, k:112 },
+  { n:"Raspberries",               cat:"fruit", kcal:52,  p:1.2, c:11.9, f:0.7, fi:6.5, na:1, k:151 },
+
+  // ── Dairy ──
+  { n:"Greek Yogurt (non-fat)",    cat:"dairy", kcal:59,  p:10.0, c:3.6, f:0.4, fi:0.0, na:36,  k:141 },
+  { n:"Greek Yogurt (2%)",         cat:"dairy", kcal:73,  p:9.0,  c:4.0, f:2.0, fi:0.0, na:41,  k:141 },
+  { n:"Milk (2%)",                 cat:"dairy", kcal:50,  p:3.3,  c:4.8, f:2.0, fi:0.0, na:44,  k:152 },
+  { n:"Milk (whole)",              cat:"dairy", kcal:61,  p:3.2,  c:4.8, f:3.3, fi:0.0, na:43,  k:150 },
+  { n:"Mozzarella (part-skim)",    cat:"dairy", kcal:254, p:24.0, c:2.8, f:15.9,fi:0.0, na:466, k:95  },
+  { n:"Cheddar Cheese",            cat:"dairy", kcal:403, p:24.9, c:1.3, f:33.1,fi:0.0, na:621, k:98  },
+  { n:"Cottage Cheese (2%)",       cat:"dairy", kcal:84,  p:11.1, c:3.4, f:2.3, fi:0.0, na:321, k:104 },
+  { n:"Ricotta (part-skim)",       cat:"dairy", kcal:138, p:11.4, c:5.1, f:8.0, fi:0.0, na:125, k:125 },
+
+  // ── Supplements ──
+  { n:"Creatine Monohydrate",      cat:"supplement", kcal:0,   p:0.0,  c:0.0, f:0.0, fi:0.0, na:0,  k:0  },
+  { n:"BCAA Powder",               cat:"supplement", kcal:20,  p:5.0,  c:0.0, f:0.0, fi:0.0, na:10, k:0  },
+  { n:"Dextrose",                  cat:"supplement", kcal:386, p:0.0,  c:96.0,f:0.0, fi:0.0, na:0,  k:0  },
+  { n:"Maltodextrin",              cat:"supplement", kcal:380, p:0.0,  c:95.0,f:0.0, fi:0.0, na:10, k:0  },
+  { n:"Fish Oil (softgel)",        cat:"supplement", kcal:45,  p:0.0,  c:0.0, f:5.0, fi:0.0, na:0,  k:0  },
+];
+
+// ── Custom Food Dialog (add to nutrition_foods) ───────────────────────────────
+function AddCustomFoodDialog({ athleteId, onSaved, onClose, toast }) {
   const [f, setF] = useState({
-    source_type: item?.source_type||"protein", food_name: item?.food_name||"",
-    quantity: item?.quantity||1, weight_g: item?.weight_g||0, serving_size: item?.serving_size||"100g",
-    protein_g: item?.protein_g||0, carbs_g: item?.carbs_g||0, fat_g: item?.fat_g||0,
-    fiber_g: item?.fiber_g||0, sodium_mg: item?.sodium_mg||0, potassium_mg: item?.potassium_mg||0,
+    name:"", category:"protein", serving_size:"100g",
+    protein:0, carbs:0, fat:0, fiber:0, sodium:0, potassium:0, calories:0
   });
-  const [e, setE] = useState({});
+  const [e, setE]           = useState({});
   const [saving, setSaving] = useState(false);
   const sf = (k,v) => { setE(p=>({...p,[k]:null})); setF(p=>({...p,[k]:v})); };
 
+  // Auto-calc calories
+  const autoKcal = Math.round((+f.protein)*4 + (+f.carbs)*4 + (+f.fat)*9);
+
   function validate_() {
     const err = {};
-    err.food_name   = validate(f.food_name,  [rules.required, rules.maxLen(100), rules.noScript]);
-    err.quantity    = validate(f.quantity,   [rules.required, rules.numeric, rules.range(0.01, 999)]);
-    err.weight_g    = validate(f.weight_g,   [rules.numeric, rules.positiveNum]);
-    err.protein_g   = validate(f.protein_g,  [rules.numeric, rules.positiveNum]);
-    err.carbs_g     = validate(f.carbs_g,    [rules.numeric, rules.positiveNum]);
-    err.fat_g       = validate(f.fat_g,      [rules.numeric, rules.positiveNum]);
-    err.fiber_g     = validate(f.fiber_g,    [rules.numeric, rules.positiveNum]);
-    err.sodium_mg   = validate(f.sodium_mg,  [rules.numeric, rules.positiveNum]);
-    err.potassium_mg= validate(f.potassium_mg,[rules.numeric, rules.positiveNum]);
+    err.name = validate(f.name, [rules.required, rules.maxLen(100), rules.noScript]);
+    ["protein","carbs","fat","fiber","sodium","potassium"].forEach(k => {
+      err[k] = validate(f[k], [rules.numeric, rules.positiveNum]);
+    });
     setE(err);
-    return Object.values(err).every(v=>!v);
+    return Object.values(err).every(v => !v);
   }
 
   async function save() {
     if (!validate_()) return;
     setSaving(true);
     try {
-      const payload = { ...f, quantity:+f.quantity, weight_g:+f.weight_g, protein_g:+f.protein_g,
-        carbs_g:+f.carbs_g, fat_g:+f.fat_g, fiber_g:+f.fiber_g, sodium_mg:+f.sodium_mg, potassium_mg:+f.potassium_mg };
+      const payload = {
+        name: f.name, category: f.category, serving_size: f.serving_size,
+        protein: +f.protein, carbs: +f.carbs, fat: +f.fat,
+        fiber: +f.fiber, sodium: +f.sodium, potassium: +f.potassium,
+        calories: autoKcal,
+      };
+      const created = await apiPost(`/athletes/${athleteId}/foods`, payload);
+      toast.show(`"${created.name}" added to your foods`, "success");
+      onSaved(created);
+      onClose();
+    } catch(err) { toast.show(err.message, "error"); setSaving(false); }
+  }
+
+  const catKey = { protein:"protein", carb:"carb", fat:"fat",
+                   vegetable:"vegetable", fruit:"fruit", dairy:"dairy", supplement:"supplement" };
+
+  return (
+    <div className="overlay" style={{zIndex:220}}>
+      <div className="dialog dialog-lg">
+        <div className="dialog-title"><Icon name="plus" size={20}/>Add Custom Food</div>
+        <p style={{fontSize:13,color:"var(--text2)",margin:"0 0 16px"}}>
+          Values are <strong>per 100 g</strong>. Macros are calculated automatically when you add this food to a meal.
+        </p>
+        <div className="form-grid" style={{marginBottom:16}}>
+          <FF label="Food Name *" error={e.name} full>
+            <input value={f.name} className={e.name?"err":""} maxLength={100}
+              onChange={ev=>sf("name",ev.target.value)} placeholder="e.g. Kangaroo Mince" autoFocus/>
+          </FF>
+          <FF label="Category">
+            <select value={f.category} onChange={ev=>sf("category",ev.target.value)}>
+              {SOURCE_TYPES.map(t=><option key={t.key} value={t.key}>{t.label}</option>)}
+            </select>
+          </FF>
+          <FF label="Serving Size Label">
+            <input value={f.serving_size} maxLength={50}
+              onChange={ev=>sf("serving_size",ev.target.value)} placeholder="100g"/>
+          </FF>
+          <FF label="Protein (g)" error={e.protein}>
+            <input type="number" min="0" step="0.1" value={f.protein} className={e.protein?"err":""}
+              onChange={ev=>sf("protein",ev.target.value)}/>
+          </FF>
+          <FF label="Carbs (g)" error={e.carbs}>
+            <input type="number" min="0" step="0.1" value={f.carbs} className={e.carbs?"err":""}
+              onChange={ev=>sf("carbs",ev.target.value)}/>
+          </FF>
+          <FF label="Fat (g)" error={e.fat}>
+            <input type="number" min="0" step="0.1" value={f.fat} className={e.fat?"err":""}
+              onChange={ev=>sf("fat",ev.target.value)}/>
+          </FF>
+          <FF label="Fiber (g)" error={e.fiber}>
+            <input type="number" min="0" step="0.1" value={f.fiber} className={e.fiber?"err":""}
+              onChange={ev=>sf("fiber",ev.target.value)}/>
+          </FF>
+          <FF label="Sodium (mg)" error={e.sodium}>
+            <input type="number" min="0" step="1" value={f.sodium} className={e.sodium?"err":""}
+              onChange={ev=>sf("sodium",ev.target.value)}/>
+          </FF>
+          <FF label="Potassium (mg)" error={e.potassium}>
+            <input type="number" min="0" step="1" value={f.potassium} className={e.potassium?"err":""}
+              onChange={ev=>sf("potassium",ev.target.value)}/>
+          </FF>
+        </div>
+        <div style={{background:"var(--surface2)",borderRadius:8,padding:"10px 14px",marginBottom:16,fontSize:13,color:"var(--text2)"}}>
+          Estimated calories: <strong style={{color:"var(--green)"}}>{autoKcal} kcal</strong>
+          <span style={{marginLeft:12,color:"var(--muted)",fontSize:11}}>(protein×4 + carbs×4 + fat×9)</span>
+        </div>
+        <div className="dialog-actions">
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" onClick={save} disabled={saving}>
+            {saving?<Spinner/>:<Icon name="save" size={14}/>}Save Food
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Food Picker Panel ─────────────────────────────────────────────────────────
+// customFoods is now passed in from MealItemDialog (lifted state) so the list
+// updates immediately when a new food is saved via AddCustomFoodDialog.
+function FoodPickerPanel({ onSelect, onAddCustom, customFoods, highlightName }) {
+  const [search, setSearch]       = useState("");
+  const [catFilter, setCatFilter] = useState("");
+
+  // Merge built-in + custom. Custom foods: per-100g values stored as protein/carbs/fat/fiber/sodium/potassium
+  const allFoods = [
+    ...FOOD_LIBRARY,
+    ...customFoods.map(f => ({
+      n: f.name, cat: f.category,
+      kcal: f.calories, p: f.protein, c: f.carbs, f: f.fat,
+      fi: f.fiber, na: f.sodium, k: f.potassium,
+      custom: true,
+    })),
+  ];
+
+  const filtered = allFoods.filter(food => {
+    const q = search.toLowerCase();
+    const matchSearch = !q || food.n.toLowerCase().includes(q);
+    const matchCat    = !catFilter || food.cat === catFilter;
+    return matchSearch && matchCat;
+  });
+
+  // Group by category for display
+  const groups = {};
+  filtered.forEach(food => {
+    if (!groups[food.cat]) groups[food.cat] = [];
+    groups[food.cat].push(food);
+  });
+
+  return (
+    <div style={{background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:10,overflow:"hidden",marginBottom:16}}>
+      {/* Search + filter bar */}
+      <div style={{padding:"12px 14px",borderBottom:"1px solid var(--border2)",display:"flex",gap:8,flexWrap:"wrap"}}>
+        <div style={{flex:1,minWidth:160,position:"relative"}}>
+          <Icon name="search" size={13} color="var(--muted)" style={{position:"absolute",left:9,top:"50%",transform:"translateY(-50%)"}}/>
+          <input value={search} onChange={ev=>setSearch(ev.target.value)}
+            placeholder="Search foods…"
+            style={{width:"100%",background:"var(--surface)",border:"1px solid var(--border2)",borderRadius:6,
+              padding:"7px 10px 7px 28px",color:"var(--text)",fontFamily:"var(--font)",fontSize:13}}/>
+        </div>
+        <select value={catFilter} onChange={ev=>setCatFilter(ev.target.value)}
+          style={{background:"var(--surface)",border:"1px solid var(--border2)",borderRadius:6,
+            padding:"7px 10px",color:"var(--text)",fontFamily:"var(--font)",fontSize:13}}>
+          <option value="">All Categories</option>
+          {SOURCE_TYPES.map(t=><option key={t.key} value={t.key}>{t.label}</option>)}
+        </select>
+        <button className="btn btn-secondary btn-sm" onClick={onAddCustom}>
+          <Icon name="plus" size={13}/>Custom Food
+        </button>
+      </div>
+
+      {/* Food list */}
+      <div style={{maxHeight:280,overflowY:"auto"}}>
+        {filtered.length === 0 && (
+          <div style={{padding:"20px 16px",textAlign:"center",color:"var(--muted)",fontSize:13}}>
+            No foods found. Try a different search or add a custom food.
+          </div>
+        )}
+        {SOURCE_TYPES.filter(t => groups[t.key]?.length > 0).map(t => (
+          <div key={t.key}>
+            <div style={{padding:"6px 14px 4px",fontSize:10,fontWeight:700,color:"var(--muted)",
+              textTransform:"uppercase",letterSpacing:.5,background:"var(--surface2)",
+              borderBottom:"1px solid var(--border)",position:"sticky",top:0}}>
+              {t.label}
+            </div>
+            {groups[t.key].map((food,i) => {
+              const isHighlighted = highlightName && food.n === highlightName;
+              return (
+                <div key={`${food.n}-${i}`}
+                  onClick={() => onSelect(food)}
+                  style={{display:"flex",alignItems:"center",justifyContent:"space-between",
+                    padding:"9px 14px",cursor:"pointer",borderBottom:"1px solid var(--border)",
+                    background: isHighlighted ? "var(--green-dim)" : "var(--surface)",
+                    borderLeft: isHighlighted ? "3px solid var(--green)" : "3px solid transparent",
+                    transition:"background .1s"}}
+                  onMouseEnter={ev=>{ if(!isHighlighted) ev.currentTarget.style.background="var(--surface2)"; }}
+                  onMouseLeave={ev=>{ ev.currentTarget.style.background=isHighlighted?"var(--green-dim)":"var(--surface)"; }}>
+                  <div>
+                    <span style={{fontWeight:600,fontSize:13}}>{food.n}</span>
+                    {food.custom && <span style={{marginLeft:6,fontSize:10,background:"var(--accent-dim)",color:"var(--accent)",borderRadius:4,padding:"1px 5px",fontWeight:700}}>custom</span>}
+                    {isHighlighted && <span style={{marginLeft:6,fontSize:10,background:"var(--green-dim)",color:"var(--green)",borderRadius:4,padding:"1px 5px",fontWeight:700}}>just added ✓</span>}
+                    <div style={{fontSize:11,color:"var(--text2)",marginTop:2}}>
+                      per 100g: P {food.p}g · C {food.c}g · F {food.f}g · {food.kcal} kcal
+                    </div>
+                  </div>
+                  <Icon name="chevron_right" size={14} color="var(--muted)"/>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Meal Item Dialog ──────────────────────────────────────────────────────────
+function MealItemDialog({ item, mealId, onSave, onClose, units, athleteId, toast, defaultSourceType }) {
+  units = units || "metric";
+  const isNew = !item;
+
+  // Selected food reference (per 100g values)
+  const [selectedFood, setSelectedFood]   = useState(null);
+  const [showPicker, setShowPicker]       = useState(isNew);
+  const [showAddCustom, setShowAddCustom] = useState(false);
+  const [lastAddedName, setLastAddedName] = useState(null);   // highlight newly saved food in picker
+
+  // ── Custom foods owned here so new saves instantly appear in picker ──────────
+  const [customFoods, setCustomFoods] = useState([]);
+  useEffect(() => {
+    if (!athleteId) return;
+    apiGet(`/athletes/${athleteId}/foods`)
+      .then(d => setCustomFoods(d))
+      .catch(() => {});
+  }, [athleteId]);
+
+  const [f, setF] = useState({
+    source_type:  item?.source_type  || defaultSourceType || "protein",
+    food_name:    item?.food_name    || "",
+    quantity:     item?.quantity     || 1,
+    weight_g:     item?.weight_g     || 100,
+    serving_size: item?.serving_size || "100g",
+    protein_g:    item?.protein_g    || 0,
+    carbs_g:      item?.carbs_g      || 0,
+    fat_g:        item?.fat_g        || 0,
+    fiber_g:      item?.fiber_g      || 0,
+    sodium_mg:    item?.sodium_mg    || 0,
+    potassium_mg: item?.potassium_mg || 0,
+  });
+  const [e, setE]           = useState({});
+  const [saving, setSaving] = useState(false);
+  const sf = (k,v) => { setE(p=>({...p,[k]:null})); setF(p=>({...p,[k]:v})); };
+
+  // When a food is picked from the library, auto-populate everything
+  function pickFood(food) {
+    setSelectedFood(food);
+    setShowPicker(false);
+    // Calculate macros for current weight_g
+    const w = +f.weight_g || 100;
+    const ratio = w / 100;
+    setF(p => ({
+      ...p,
+      food_name:    food.n,
+      source_type:  food.cat,
+      serving_size: `${w}g`,
+      protein_g:    +(food.p  * ratio).toFixed(2),
+      carbs_g:      +(food.c  * ratio).toFixed(2),
+      fat_g:        +(food.f  * ratio).toFixed(2),
+      fiber_g:      +(food.fi * ratio).toFixed(2),
+      sodium_mg:    +(food.na * ratio).toFixed(1),
+      potassium_mg: +(food.k  * ratio).toFixed(1),
+    }));
+  }
+
+  // Recalculate when weight changes (only if a food is selected)
+  function onWeightChange(rawVal) {
+    const wg = wgToG(rawVal, units);
+    setF(p => {
+      const newF = { ...p, weight_g: wg, serving_size: `${wg}g` };
+      if (selectedFood) {
+        const ratio = wg / 100;
+        newF.protein_g    = +(selectedFood.p  * ratio).toFixed(2);
+        newF.carbs_g      = +(selectedFood.c  * ratio).toFixed(2);
+        newF.fat_g        = +(selectedFood.f  * ratio).toFixed(2);
+        newF.fiber_g      = +(selectedFood.fi * ratio).toFixed(2);
+        newF.sodium_mg    = +(selectedFood.na * ratio).toFixed(1);
+        newF.potassium_mg = +(selectedFood.k  * ratio).toFixed(1);
+      }
+      return newF;
+    });
+    setE(p => ({ ...p, weight_g: null }));
+  }
+
+  function validate_() {
+    const err = {};
+    err.food_name    = validate(f.food_name,    [rules.required, rules.maxLen(100), rules.noScript]);
+    err.weight_g     = validate(f.weight_g,     [rules.numeric, rules.positiveNum]);
+    err.protein_g    = validate(f.protein_g,    [rules.numeric, rules.positiveNum]);
+    err.carbs_g      = validate(f.carbs_g,      [rules.numeric, rules.positiveNum]);
+    err.fat_g        = validate(f.fat_g,        [rules.numeric, rules.positiveNum]);
+    err.fiber_g      = validate(f.fiber_g,      [rules.numeric, rules.positiveNum]);
+    err.sodium_mg    = validate(f.sodium_mg,    [rules.numeric, rules.positiveNum]);
+    err.potassium_mg = validate(f.potassium_mg, [rules.numeric, rules.positiveNum]);
+    setE(err);
+    return Object.values(err).every(v => !v);
+  }
+
+  async function save() {
+    if (!validate_()) return;
+    setSaving(true);
+    try {
+      const payload = {
+        ...f, quantity: 1,
+        weight_g:     +f.weight_g,
+        protein_g:    +f.protein_g,
+        carbs_g:      +f.carbs_g,
+        fat_g:        +f.fat_g,
+        fiber_g:      +f.fiber_g,
+        sodium_mg:    +f.sodium_mg,
+        potassium_mg: +f.potassium_mg,
+      };
       if (item) await apiPut(`/meal-items/${item.id}`, payload);
       else      await apiPost(`/meals/${mealId}/items`, payload);
       onSave(); onClose();
-    } catch(err) { setSaving(false); }
+    } catch(err) {
+      toast?.show(err.message || "Failed to save food item", "error");
+      setSaving(false);
+    }
   }
 
-  const MACROFIELDS = [
-    {k:"protein_g",l:"Protein (g)"},{k:"carbs_g",l:"Carbs (g)"},{k:"fat_g",l:"Fat (g)"},
-    {k:"fiber_g",l:"Fiber (g)"},{k:"sodium_mg",l:"Sodium (mg)"},{k:"potassium_mg",l:"Potassium (mg)"},
-  ];
+  const kcalCalc = Math.round((+f.protein_g)*4 + (+f.carbs_g)*4 + (+f.fat_g)*9);
 
   return (
-    <div className="overlay" style={{zIndex:150}}>
-      <div className="dialog dialog-lg">
-        <div className="dialog-title"><Icon name="apple" size={20}/>{isNew?"Add Food Item":"Edit Food Item"}</div>
+    <div className="overlay" style={{zIndex:160}}>
+      <div className="dialog dialog-xl" style={{maxHeight:"90vh",overflowY:"auto"}}>
+        <div className="dialog-title">
+          <Icon name="apple" size={20}/>{isNew?"Add Food Item":"Edit Food Item"}
+          {selectedFood && (
+            <button className="btn btn-ghost btn-sm" style={{marginLeft:"auto"}} onClick={()=>setShowPicker(v=>!v)}>
+              <Icon name="search" size={13}/>{showPicker?"Hide":"Change Food"}
+            </button>
+          )}
+        </div>
+
+        {/* Food picker */}
+        {showPicker && (
+          <FoodPickerPanel
+            customFoods={customFoods}
+            highlightName={lastAddedName}
+            onSelect={food => { setLastAddedName(null); pickFood(food); }}
+            onAddCustom={() => setShowAddCustom(true)}
+          />
+        )}
+
+        {/* Selected food tag */}
+        {selectedFood && !showPicker && (
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,
+            padding:"8px 12px",background:"var(--accent-dim)",borderRadius:8,border:"1px solid var(--accent)"}}>
+            <span className={`source-badge ${srcBadge(selectedFood.cat)}`} style={{fontSize:11}}>{srcLabel(selectedFood.cat)}</span>
+            <span style={{fontWeight:700,fontSize:13}}>{selectedFood.n}</span>
+            <span style={{fontSize:11,color:"var(--text2)"}}>
+              {selectedFood.p}g P · {selectedFood.c}g C · {selectedFood.f}g F per 100g
+            </span>
+          </div>
+        )}
+
+        {/* Form fields */}
         <div className="form-grid" style={{marginBottom:16}}>
-          <FF label="Source Type">
-            <ToggleGroup
-              options={SOURCE_TYPES.map(t=>({value:t,label:SOURCE_LABELS[t]}))}
-              value={f.source_type} onChange={v=>sf("source_type",v)}/>
+          {/* Source type */}
+          <FF label="Category">
+            <select value={f.source_type} onChange={ev=>sf("source_type",ev.target.value)}>
+              {SOURCE_TYPES.map(t=><option key={t.key} value={t.key}>{t.label}</option>)}
+            </select>
           </FF>
-          <FF label="Food Name *" error={e.food_name}><input value={f.food_name} className={e.food_name?"err":""} maxLength={100} onChange={ev=>sf("food_name",ev.target.value)} placeholder="e.g. Chicken Breast" autoFocus/></FF>
-          <FF label="Quantity *" error={e.quantity} hint="e.g. 1, 1.5, 2"><input type="number" min="0.01" max="999" step="0.01" value={f.quantity} className={e.quantity?"err":""} onChange={ev=>sf("quantity",ev.target.value)}/></FF>
-          <FF label={`Weight (${wgLabel(units)})`} error={e.weight_g}>
-            <input type="number" min="0" step="0.1"
+
+          {/* Food name */}
+          <FF label="Food Name *" error={e.food_name}>
+            <input value={f.food_name} className={e.food_name?"err":""} maxLength={100}
+              onChange={ev=>sf("food_name",ev.target.value)}
+              placeholder={showPicker?"Pick from the list above, or type manually…":"Food name"}/>
+          </FF>
+
+          {/* Weight */}
+          <FF label={`Weight (${wgLabel(units)})`} error={e.weight_g}
+            hint={selectedFood?"Macros auto-update as you change this":""}>
+            <input type="number" min="0" step={units==="metric"?"1":"0.1"}
               value={wgDisplay(f.weight_g, units)}
               className={e.weight_g?"err":""}
-              onChange={ev=>sf("weight_g", wgToG(ev.target.value, units))}/>
+              onChange={ev => onWeightChange(ev.target.value)}/>
           </FF>
-          <FF label="Serving Size"><input value={f.serving_size} maxLength={50} onChange={ev=>sf("serving_size",ev.target.value)} placeholder="100g, 1 cup"/></FF>
+
+          {/* Serving size label */}
+          <FF label="Serving Description">
+            <input value={f.serving_size} maxLength={50}
+              onChange={ev=>sf("serving_size",ev.target.value)}
+              placeholder="e.g. 1 cup, 1 breast"/>
+          </FF>
         </div>
-        <div style={{fontWeight:700,fontSize:12,color:"var(--text2)",textTransform:"uppercase",letterSpacing:.5,marginBottom:12}}>Nutritional Values (per serving)</div>
-        <div className="form-grid">
-          {MACROFIELDS.map(({k,l})=>(
-            <FF key={k} label={l} error={e[k]}><input type="number" min="0" step="0.1" value={f[k]} className={e[k]?"err":""} onChange={ev=>sf(k,ev.target.value)}/></FF>
+
+        {/* Nutritional values */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+          <div style={{fontWeight:700,fontSize:12,color:"var(--text2)",textTransform:"uppercase",letterSpacing:.5}}>
+            Nutritional Values
+          </div>
+          <div style={{fontSize:12,color:"var(--green)",fontWeight:700}}>
+            {kcalCalc} kcal
+            {selectedFood && <span style={{color:"var(--muted)",fontWeight:400,marginLeft:6,fontSize:11}}>(auto-calculated)</span>}
+          </div>
+        </div>
+
+        <div className="form-grid" style={{marginBottom:16}}>
+          {[
+            {k:"protein_g",   l:"Protein (g)"},
+            {k:"carbs_g",     l:"Carbs (g)"},
+            {k:"fat_g",       l:"Fat (g)"},
+            {k:"fiber_g",     l:"Fiber (g)"},
+            {k:"sodium_mg",   l:"Sodium (mg)"},
+            {k:"potassium_mg",l:"Potassium (mg)"},
+          ].map(({k,l})=>(
+            <FF key={k} label={l} error={e[k]}>
+              <input type="number" min="0" step="0.1"
+                value={f[k]} className={e[k]?"err":""}
+                onChange={ev=>sf(k,ev.target.value)}
+                style={selectedFood?{borderColor:"var(--accent)",background:"var(--accent-dim)"}:{}}/>
+            </FF>
           ))}
         </div>
+
         <div className="dialog-actions">
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
           <button className="btn btn-primary" onClick={save} disabled={saving}>
@@ -92,6 +562,23 @@ function MealItemDialog({ item, mealId, onSave, onClose, units }) {
           </button>
         </div>
       </div>
+
+      {showAddCustom && (
+        <AddCustomFoodDialog
+          athleteId={athleteId}
+          onSaved={food => {
+            // 1. Add to local customFoods so picker shows it immediately
+            setCustomFoods(prev => [...prev, food]);
+            // 2. Show the picker with the new food highlighted
+            setLastAddedName(food.name);
+            setShowPicker(true);
+            setShowAddCustom(false);
+            // (toast shown by AddCustomFoodDialog itself)
+          }}
+          onClose={() => setShowAddCustom(false)}
+          toast={toast || { show: () => {} }}
+        />
+      )}
     </div>
   );
 }
@@ -100,14 +587,15 @@ function MealItemDialog({ item, mealId, onSave, onClose, units }) {
 function MealDialog({ meal, athleteId, onSave, onClose, toast, units }) {
   units = units || "metric";
   const isNew = !meal;
-  const [meta, setMeta] = useState({ name: meal?.name||"", day_type: meal?.day_type||"training" });
-  const [items, setItems] = useState(meal?.items||[]);
-  const [metaErr, setMetaErr] = useState({});
+  const [meta, setMeta]         = useState({ name: meal?.name||"", day_type: meal?.day_type||"training" });
+  const [items, setItems]       = useState(meal?.items||[]);
+  const [metaErr, setMetaErr]   = useState({});
   const [savingMeta, setSavingMeta] = useState(false);
   const [showItemForm, setShowItemForm] = useState(false);
   const [editItem, setEditItem] = useState(null);
-  const [mealId, setMealId] = useState(meal?.id||null);
-  const { confirm, Confirmer } = useConfirm();
+  const [addForType, setAddForType] = useState(null);
+  const [mealId, setMealId]     = useState(meal?.id||null);
+  const { confirm, Confirmer }  = useConfirm();
 
   async function saveMeta() {
     const err = {};
@@ -137,7 +625,7 @@ function MealDialog({ meal, athleteId, onSave, onClose, toast, units }) {
   async function reloadItems() {
     if (!mealId) return;
     const updated = await apiGet(`/athletes/${athleteId}/meals`);
-    const m = updated.find(x=>x.id===mealId);
+    const m = updated.find(x => x.id === mealId);
     if (m) setItems(m.items||[]);
     onSave();
   }
@@ -150,80 +638,157 @@ function MealDialog({ meal, athleteId, onSave, onClose, toast, units }) {
     toast.show("Item removed","success");
   }
 
-  const totals = items.reduce((acc,it)=>{
-    const qty = it.quantity||1;
-    ["protein_g","carbs_g","fat_g","fiber_g","sodium_mg","potassium_mg"].forEach(k=>{acc[k]+=(it[k]||0)*qty;});
-    acc.calories += ((it.protein_g||0)*4 + (it.carbs_g||0)*4 + (it.fat_g||0)*9)*qty;
-    return acc;
-  },{protein_g:0,carbs_g:0,fat_g:0,fiber_g:0,sodium_mg:0,potassium_mg:0,calories:0});
+  async function openAdd(sourceType) {
+    setAddForType(sourceType);
+    setEditItem(null);
+    // If meal hasn't been saved yet, auto-save it first
+    if (!mealId) {
+      if (!meta.name.trim()) {
+        toast.show("Enter a meal name first, then click Save Meal Info", "info");
+        return;
+      }
+      // Auto-save the meal
+      const err = {};
+      err.name = validate(meta.name, [rules.required, rules.maxLen(100), rules.noScript]);
+      if (err.name) { setMetaErr(err); return; }
+      setSavingMeta(true);
+      try {
+        const payload = { name: meta.name, day_type: meta.day_type };
+        const created = await apiPost(`/athletes/${athleteId}/meals`, payload);
+        setMealId(created.id);
+        setItems(created.items||[]);
+        onSave();
+      } catch(err) { toast.show(err.message,"error"); setSavingMeta(false); return; }
+      setSavingMeta(false);
+    }
+    setShowItemForm(true);
+  }
 
-  const bySource = {protein:items.filter(i=>i.source_type==="protein"), carb:items.filter(i=>i.source_type==="carb"), fat:items.filter(i=>i.source_type==="fat")};
+  // Totals
+  const totals = items.reduce((acc,it) => {
+    ["protein_g","carbs_g","fat_g","fiber_g","sodium_mg","potassium_mg"].forEach(k => { acc[k]+=(it[k]||0); });
+    acc.calories += ((it.protein_g||0)*4 + (it.carbs_g||0)*4 + (it.fat_g||0)*9);
+    return acc;
+  }, {protein_g:0,carbs_g:0,fat_g:0,fiber_g:0,sodium_mg:0,potassium_mg:0,calories:0});
+
+  // Group items by source type
+  const byType = {};
+  SOURCE_TYPES.forEach(t => { byType[t.key] = items.filter(i => i.source_type === t.key); });
+
+  // Only show sections that have items OR protein/carb/fat (always visible)
+  const alwaysVisible = new Set(["protein","carb","fat"]);
+  const visibleTypes = SOURCE_TYPES.filter(t => alwaysVisible.has(t.key) || byType[t.key]?.length > 0);
 
   return (
     <div className="overlay">
-      <div className="dialog dialog-xl">
+      <div className="dialog dialog-xl" style={{maxHeight:"92vh",overflowY:"auto"}}>
         <div className="dialog-title"><Icon name="apple" size={20}/>{isNew?"New Meal":"Edit Meal"}</div>
 
         {/* Meal meta */}
         <div className="form-grid" style={{marginBottom:16}}>
-          <FF label="Meal Name *" error={metaErr.name}><input value={meta.name} className={metaErr.name?"err":""} maxLength={100} onChange={ev=>setMeta(p=>({...p,name:ev.target.value}))} placeholder="e.g. Post-Workout Meal"/></FF>
+          <FF label="Meal Name *" error={metaErr.name}>
+            <input value={meta.name} className={metaErr.name?"err":""} maxLength={100}
+              onChange={ev=>setMeta(p=>({...p,name:ev.target.value}))} placeholder="e.g. Post-Workout Meal"/>
+          </FF>
           <FF label="Day Type">
-            <ToggleGroup options={[{value:"training",label:"Training Day"},{value:"off",label:"Rest Day"}]} value={meta.day_type} onChange={v=>setMeta(p=>({...p,day_type:v}))}/>
+            <ToggleGroup options={[{value:"training",label:"Training Day"},{value:"off",label:"Rest Day"}]}
+              value={meta.day_type} onChange={v=>setMeta(p=>({...p,day_type:v}))}/>
           </FF>
           <div style={{gridColumn:"1/-1",display:"flex",justifyContent:"flex-end"}}>
-            <button className="btn btn-secondary btn-sm" onClick={saveMeta} disabled={savingMeta}>{savingMeta?<Spinner/>:<Icon name="save" size={13}/>}Save Meal Info</button>
+            <button className="btn btn-secondary btn-sm" onClick={saveMeta} disabled={savingMeta}>
+              {savingMeta?<Spinner/>:<Icon name="save" size={13}/>}Save Meal Info
+            </button>
           </div>
         </div>
 
+        {!mealId && meta.name.trim() && (
+          <div style={{marginBottom:16,padding:"10px 14px",background:"var(--accent-dim)",
+            border:"1px solid var(--accent)",borderRadius:8,fontSize:13,color:"var(--text2)"}}>
+            <Icon name="info" size={13} color="var(--accent)"/> Save meal info above to start adding food items.
+          </div>
+        )}
+
         {mealId && (<>
-          {/* Totals */}
-          <div style={{background:"var(--accent-dim)",border:"1px solid var(--accent)",borderRadius:10,padding:"12px 16px",marginBottom:16,display:"flex",gap:20,flexWrap:"wrap"}}>
-            {[["Calories",totals.calories.toFixed(0)+"kcal","var(--green)"],
-              ["Protein",totals.protein_g.toFixed(1)+"g","var(--red)"],
-              ["Carbs",totals.carbs_g.toFixed(1)+"g","var(--orange)"],
-              ["Fat",totals.fat_g.toFixed(1)+"g","var(--yellow)"],
-              ["Fiber",totals.fiber_g.toFixed(1)+"g","var(--accent2)"]].map(([l,v,c])=>(
-              <div key={l}><div style={{fontSize:10,color:"var(--muted)",textTransform:"uppercase",fontWeight:700}}>{l}</div><div style={{fontWeight:700,color:c,fontSize:15}}>{v}</div></div>
+          {/* Macro totals banner */}
+          <div style={{background:"var(--accent-dim)",border:"1px solid var(--accent)",borderRadius:10,
+            padding:"12px 16px",marginBottom:16,display:"flex",gap:20,flexWrap:"wrap"}}>
+            {[
+              ["Calories", `${totals.calories.toFixed(0)} kcal`, "var(--green)"],
+              ["Protein",  `${totals.protein_g.toFixed(1)} g`,   "var(--red)"],
+              ["Carbs",    `${totals.carbs_g.toFixed(1)} g`,     "var(--orange)"],
+              ["Fat",      `${totals.fat_g.toFixed(1)} g`,       "var(--yellow)"],
+              ["Fiber",    `${totals.fiber_g.toFixed(1)} g`,     "var(--accent2)"],
+              ["Sodium",   `${totals.sodium_mg.toFixed(0)} mg`,  "var(--muted)"],
+            ].map(([l,v,c])=>(
+              <div key={l}>
+                <div style={{fontSize:10,color:"var(--muted)",textTransform:"uppercase",fontWeight:700}}>{l}</div>
+                <div style={{fontWeight:700,color:c,fontSize:15}}>{v}</div>
+              </div>
             ))}
           </div>
 
-          {/* Food items by source type */}
-          {SOURCE_TYPES.map(st=>(
-            <div key={st} style={{marginBottom:16}}>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                <span className={`source-badge ${SOURCE_BADGE[st]}`} style={{fontSize:12,padding:"3px 12px"}}>{SOURCE_LABELS[st]}s</span>
-                <button className="btn btn-ghost btn-sm" onClick={()=>{setEditItem(null);setShowItemForm(st);}}><Icon name="plus" size={13}/>Add</button>
-              </div>
-              {bySource[st].length === 0 && <div style={{fontSize:12,color:"var(--muted)",padding:"8px 0"}}>None added yet.</div>}
-              {bySource[st].map(it=>(
-                <div key={it.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:"var(--surface2)",borderRadius:8,marginBottom:6}}>
-                  <div style={{flex:1}}>
-                    <span style={{fontWeight:600,fontSize:13}}>{it.food_name}</span>
-                    <span style={{fontSize:11,color:"var(--text2)",marginLeft:8}}>×{it.quantity} ({it.serving_size})</span>
-                  </div>
-                  <div style={{fontSize:11,color:"var(--text2)",display:"flex",gap:12}}>
-                    <span>P:{((it.protein_g||0)*(it.quantity||1)).toFixed(1)}g</span>
-                    <span>C:{((it.carbs_g||0)*(it.quantity||1)).toFixed(1)}g</span>
-                    <span>F:{((it.fat_g||0)*(it.quantity||1)).toFixed(1)}g</span>
-                  </div>
-                  <button className="btn btn-ghost btn-sm btn-icon" onClick={()=>{setEditItem(it);setShowItemForm(st);}}><Icon name="edit" size={13}/></button>
-                  <button className="btn btn-ghost btn-sm btn-icon" onClick={()=>deleteItem(it.id)}><Icon name="trash" size={13}/></button>
+          {/* Food items by category */}
+          {visibleTypes.map(type => {
+            const typeItems = byType[type.key] || [];
+            return (
+              <div key={type.key} style={{marginBottom:16}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                  <span className={`source-badge ${type.badge}`} style={{fontSize:12,padding:"3px 14px"}}>{type.label}</span>
+                  <button className="btn btn-ghost btn-sm" onClick={()=>openAdd(type.key)}>
+                    <Icon name="plus" size={13}/>Add
+                  </button>
                 </div>
-              ))}
-            </div>
-          ))}
+                {typeItems.length === 0 && (
+                  <div style={{fontSize:12,color:"var(--muted)",padding:"6px 0"}}>None added yet.</div>
+                )}
+                {typeItems.map(it => {
+                  const itKcal = Math.round((it.protein_g||0)*4 + (it.carbs_g||0)*4 + (it.fat_g||0)*9);
+                  return (
+                    <div key={it.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
+                      background:"var(--surface2)",borderRadius:8,marginBottom:6}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontWeight:600,fontSize:13}}>{it.food_name}
+                          {it.serving_size&&<span style={{fontSize:11,color:"var(--text2)",marginLeft:8}}>{it.serving_size}</span>}
+                        </div>
+                        <div style={{fontSize:11,color:"var(--text2)",display:"flex",gap:10,marginTop:3,flexWrap:"wrap"}}>
+                          <span style={{color:"var(--red)"}}>P {(it.protein_g||0).toFixed(1)}g</span>
+                          <span style={{color:"var(--orange)"}}>C {(it.carbs_g||0).toFixed(1)}g</span>
+                          <span style={{color:"var(--yellow)"}}>F {(it.fat_g||0).toFixed(1)}g</span>
+                          <span>Fiber {(it.fiber_g||0).toFixed(1)}g</span>
+                          <span style={{color:"var(--green)",fontWeight:700}}>{itKcal} kcal</span>
+                        </div>
+                      </div>
+                      <button className="btn btn-ghost btn-sm btn-icon" onClick={()=>{setEditItem(it);setAddForType(it.source_type||null);setShowItemForm(true);}}>
+                        <Icon name="edit" size={13}/>
+                      </button>
+                      <button className="btn btn-ghost btn-sm btn-icon" onClick={()=>deleteItem(it.id)}>
+                        <Icon name="trash" size={13}/>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
         </>)}
 
         <div className="dialog-actions">
           <button className="btn btn-primary" onClick={onClose}>Done</button>
         </div>
 
-        {showItemForm && (
+        {showItemForm && mealId && (
           <MealItemDialog
             item={editItem}
             mealId={mealId}
             units={units}
-            onSave={()=>{reloadItems();setShowItemForm(false);setEditItem(null);}}
+            athleteId={athleteId}
+            toast={toast}
+            defaultSourceType={addForType}
+            onSave={async ()=>{
+              await reloadItems();
+              setShowItemForm(false);
+              setEditItem(null);
+            }}
             onClose={()=>{setShowItemForm(false);setEditItem(null);}}
           />
         )}
@@ -236,15 +801,15 @@ function MealDialog({ meal, athleteId, onSave, onClose, toast, units }) {
 // ── Meal Plan Tab ─────────────────────────────────────────────────────────────
 function MealPlanTab({ athleteId, toast, units }) {
   units = units || "metric";
-  const [macroData, setMacroData] = useState(null);
-  const [macroForm, setMacroForm] = useState({});
+  const [macroData, setMacroData]     = useState(null);
+  const [macroForm, setMacroForm]     = useState({});
   const [macroErrors, setMacroErrors] = useState({});
   const [savingMacro, setSavingMacro] = useState(false);
-  const [meals, setMeals]     = useState([]);
-  const [dayFilter, setDayFilter] = useState("training");
+  const [meals, setMeals]             = useState([]);
+  const [dayFilter, setDayFilter]     = useState("training");
   const [showMealForm, setShowMealForm] = useState(false);
-  const [editMeal, setEditMeal] = useState(null);
-  const { confirm, Confirmer } = useConfirm();
+  const [editMeal, setEditMeal]       = useState(null);
+  const { confirm, Confirmer }        = useConfirm();
 
   useEffect(() => { loadAll(); }, [athleteId]);
 
@@ -256,7 +821,10 @@ function MealPlanTab({ athleteId, toast, units }) {
       ]);
       setMacroData(mp);
       const fm = {};
-      MACRO_DEFS.forEach(m=>{ fm[`${m.key}_target`]=mp[`${m.key}_target`]; fm[`${m.key}_actual`]=mp[`${m.key}_actual`]; });
+      MACRO_DEFS.forEach(m => {
+        fm[`${m.key}_target`] = mp[`${m.key}_target`];
+        fm[`${m.key}_actual`] = mp[`${m.key}_actual`];
+      });
       setMacroForm(fm);
       setMeals(ml);
     } catch(err) { toast.show(err.message,"error"); }
@@ -279,7 +847,10 @@ function MealPlanTab({ athleteId, toast, units }) {
     setSavingMacro(true);
     try {
       const payload={};
-      MACRO_DEFS.forEach(m=>{payload[`${m.key}_target`]=+macroForm[`${m.key}_target`];payload[`${m.key}_actual`]=+macroForm[`${m.key}_actual`];});
+      MACRO_DEFS.forEach(m=>{
+        payload[`${m.key}_target`]=+macroForm[`${m.key}_target`];
+        payload[`${m.key}_actual`]=+macroForm[`${m.key}_actual`];
+      });
       const u = await apiPut(`/athletes/${athleteId}/meal-plan`,payload);
       setMacroData(u);
       toast.show("Macro targets saved","success");
@@ -295,51 +866,128 @@ function MealPlanTab({ athleteId, toast, units }) {
     toast.show("Meal deleted","success");
   }
 
-  const filteredMeals = meals.filter(m=>m.day_type===dayFilter);
-  const fillClass=(pct)=>pct>110?"fill-over":pct>=90?"fill-ok":"fill-warn";
+  const filteredMeals = meals.filter(m => m.day_type === dayFilter);
+  const fillClass = pct => pct>110?"fill-over":pct>=90?"fill-ok":"fill-warn";
 
   if (!macroData) return <LoadingState/>;
+
+  // ── Auto-compute macros consumed from filtered meals ─────────────────────────
+  const mealMacros = filteredMeals.reduce((acc, meal) => {
+    meal.items?.forEach(it => {
+      acc.protein   += (it.protein_g   || 0);
+      acc.carbs     += (it.carbs_g     || 0);
+      acc.fat       += (it.fat_g       || 0);
+      acc.fiber     += (it.fiber_g     || 0);
+      acc.sodium    += (it.sodium_mg   || 0);
+      acc.potassium += (it.potassium_mg|| 0);
+    });
+    return acc;
+  }, {protein:0, carbs:0, fat:0, fiber:0, sodium:0, potassium:0});
+
+  // Map macro keys from MACRO_DEFS to mealMacros keys
+  const mealMacroVal = key => {
+    const map = {protein:"protein",carbs:"carbs",fat:"fat",fiber:"fiber",sodium:"sodium",potassium:"potassium"};
+    return mealMacros[map[key]] || 0;
+  };
+
+  // Calorie targets
+  const trainingTarget = macroData.daily_calorie_intake || 0;
+  const restTarget     = macroData.rest_day_calories    || 0;
+  const dailyTarget    = dayFilter === "off" ? restTarget : trainingTarget;
+
+  // Total calories consumed across all filtered meals
+  const totalConsumedKcal = filteredMeals.reduce((sum, meal) =>
+    sum + (meal.items?.reduce((s, it) => s + (it.protein_g||0)*4 + (it.carbs_g||0)*4 + (it.fat_g||0)*9, 0) || 0)
+  , 0);
+  const remainingKcal  = dailyTarget - totalConsumedKcal;
+  const overBudget     = totalConsumedKcal > dailyTarget && dailyTarget > 0;
+  const consumedPct    = dailyTarget > 0 ? Math.min(100, (totalConsumedKcal / dailyTarget) * 100) : 0;
 
   return (
     <div>
       {/* Info banner */}
       <div className="info-row">
         {[["RMR",`${(macroData.rmr||0).toFixed(0)} kcal`,"var(--accent)"],
-          ["Daily Target",`${(macroData.daily_calorie_intake||0).toFixed(0)} kcal`,"var(--green)"]].map(([l,v,c])=>(
-          <div key={l} className="info-item"><div className="info-label">{l}</div><div className="info-val" style={{color:c}}>{v}</div></div>
+          ["Training Day",`${trainingTarget.toFixed(0)} kcal`,"var(--green)"],
+          ["Rest Day",`${restTarget.toFixed(0)} kcal`,"var(--yellow)"]].map(([l,v,c])=>(
+          <div key={l} className="info-item">
+            <div className="info-label">{l}</div>
+            <div className="info-val" style={{color:c}}>{v}</div>
+          </div>
         ))}
       </div>
 
       {/* Macro Targets */}
       <div className="card">
-        <div className="card-title"><Icon name="activity" size={16}/>Macro Targets</div>
-        <table className="macro-table">
-          <thead><tr><th>Nutrient</th><th>Target</th><th>Actual</th><th>%</th><th>Progress</th></tr></thead>
-          <tbody>
-            {MACRO_DEFS.map(m=>{
-              const target=+macroForm[`${m.key}_target`]||0;
-              const actual=+macroForm[`${m.key}_actual`]||0;
-              const pct=target>0?Math.round((actual/target)*100):0;
-              return (
-                <tr key={m.key}>
-                  <td><b>{m.label}</b></td>
-                  <td>
-                    <input type="number" min="0" value={macroForm[`${m.key}_target`]??""} className={macroErrors[`${m.key}_target`]?"err":""}
-                      onChange={e=>smf(`${m.key}_target`,e.target.value)}/> {m.unit}
-                    {macroErrors[`${m.key}_target`]&&<div className="field-err">{macroErrors[`${m.key}_target`]}</div>}
-                  </td>
-                  <td>
-                    <input type="number" min="0" value={macroForm[`${m.key}_actual`]??""} className={macroErrors[`${m.key}_actual`]?"err":""}
-                      onChange={e=>smf(`${m.key}_actual`,e.target.value)}/> {m.unit}
-                    {macroErrors[`${m.key}_actual`]&&<div className="field-err">{macroErrors[`${m.key}_actual`]}</div>}
-                  </td>
-                  <td><span style={{color:pct>110?"var(--red)":pct>=90?"var(--green)":"var(--orange)",fontWeight:700}}>{pct}%</span></td>
-                  <td style={{width:100}}><div className="progress-bar"><div className={`progress-fill ${fillClass(pct)}`} style={{width:`${Math.min(120,pct)}%`}}/></div></td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+          <div className="card-title" style={{marginBottom:0}}><Icon name="activity" size={16}/>Macro Targets</div>
+          <div style={{fontSize:11,color:"var(--muted)"}}>
+            <span style={{display:"inline-block",width:10,height:10,borderRadius:2,background:"var(--green)",marginRight:4,verticalAlign:"middle"}}/>
+            From meals auto-updates as you add food
+          </div>
+        </div>
+        <div style={{overflowX:"auto"}}>
+          <table className="macro-table" style={{minWidth:520}}>
+            <thead>
+              <tr>
+                <th>Nutrient</th>
+                <th>Target</th>
+                <th style={{color:"var(--green)"}}>From Meals ↑</th>
+                <th>Manual Actual</th>
+                <th>% of Target</th>
+                <th style={{width:100}}>Progress</th>
+              </tr>
+            </thead>
+            <tbody>
+              {MACRO_DEFS.map(m=>{
+                const target  = +macroForm[`${m.key}_target`] || 0;
+                const fromMeals = mealMacroVal(m.key);
+                const actual  = +macroForm[`${m.key}_actual`] || 0;
+                // % is driven by from-meals value when available, else manual actual
+                const consumed = fromMeals > 0 ? fromMeals : actual;
+                const pct = target > 0 ? Math.round((consumed / target) * 100) : 0;
+                const mealPct = target > 0 ? Math.round((fromMeals / target) * 100) : 0;
+                return (
+                  <tr key={m.key}>
+                    <td><b>{m.label}</b></td>
+                    <td>
+                      <input type="number" min="0" value={macroForm[`${m.key}_target`]??""} className={macroErrors[`${m.key}_target`]?"err":""}
+                        onChange={e=>smf(`${m.key}_target`,e.target.value)} style={{width:72}}/> <span style={{color:"var(--muted)",fontSize:12}}>{m.unit}</span>
+                      {macroErrors[`${m.key}_target`]&&<div className="field-err">{macroErrors[`${m.key}_target`]}</div>}
+                    </td>
+                    {/* From Meals — auto-computed, read-only */}
+                    <td>
+                      <span style={{fontWeight:700, color: mealPct>110?"var(--red)":mealPct>=90?"var(--green)":fromMeals>0?"var(--accent)":"var(--muted)", fontSize:14}}>
+                        {fromMeals.toFixed(m.key==="sodium"||m.key==="potassium"?0:1)}
+                      </span>
+                      <span style={{color:"var(--muted)",fontSize:11,marginLeft:3}}>{m.unit}</span>
+                      {fromMeals > 0 && target > 0 && (
+                        <span style={{marginLeft:6,fontSize:10,color:mealPct>110?"var(--red)":mealPct>=90?"var(--green)":"var(--muted)"}}>
+                          ({mealPct}%)
+                        </span>
+                      )}
+                    </td>
+                    <td>
+                      <input type="number" min="0" value={macroForm[`${m.key}_actual`]??""} className={macroErrors[`${m.key}_actual`]?"err":""}
+                        onChange={e=>smf(`${m.key}_actual`,e.target.value)} style={{width:72}}/> <span style={{color:"var(--muted)",fontSize:12}}>{m.unit}</span>
+                      {macroErrors[`${m.key}_actual`]&&<div className="field-err">{macroErrors[`${m.key}_actual`]}</div>}
+                    </td>
+                    <td>
+                      <span style={{color:pct>110?"var(--red)":pct>=90?"var(--green)":"var(--orange)",fontWeight:700}}>
+                        {pct}%
+                      </span>
+                    </td>
+                    <td>
+                      <div className="progress-bar">
+                        <div className={`progress-fill ${fillClass(pct)}`} style={{width:`${Math.min(120,pct)}%`}}/>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
         <div style={{display:"flex",justifyContent:"flex-end",marginTop:16}}>
           <button className="btn btn-primary" onClick={saveMacros} disabled={savingMacro}>
             {savingMacro?<Spinner/>:<Icon name="save" size={14}/>}Save Macro Targets
@@ -351,49 +999,136 @@ function MealPlanTab({ athleteId, toast, units }) {
       <div className="card">
         <div className="section-header">
           <div className="card-title" style={{marginBottom:0}}><Icon name="apple" size={16}/>Meals</div>
-          <div style={{display:"flex",gap:8}}>
-            <ToggleGroup options={[{value:"training",label:"Training Day"},{value:"off",label:"Rest Day"}]} value={dayFilter} onChange={setDayFilter}/>
-            <button className="btn btn-primary btn-sm" onClick={()=>{setEditMeal(null);setShowMealForm(true);}}><Icon name="plus" size={13}/>New Meal</button>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <ToggleGroup options={[{value:"training",label:"Training Day"},{value:"off",label:"Rest Day"}]}
+              value={dayFilter} onChange={setDayFilter}/>
+            <button className="btn btn-primary btn-sm" onClick={()=>{setEditMeal(null);setShowMealForm(true);}}>
+              <Icon name="plus" size={13}/>New Meal
+            </button>
           </div>
         </div>
 
-        {filteredMeals.length===0 && (
-          <EmptyState icon="apple" title={`No ${dayFilter==="training"?"Training":"Rest"} Day Meals`} message="Create a meal to track your nutrition."/>
-        )}
-
-        {filteredMeals.map(meal=>(
-          <div key={meal.id} className="meal-card">
-            <div className="meal-card-header">
-              <div style={{flex:1}}>
-                <div className="meal-name">{meal.name}</div>
-                <div className="meal-summary">
-                  {meal.items?.length||0} items · {(meal.totals?.calories||0).toFixed(0)} kcal ·
-                  P:{(meal.totals?.protein_g||0).toFixed(0)}g C:{(meal.totals?.carbs_g||0).toFixed(0)}g F:{(meal.totals?.fat_g||0).toFixed(0)}g
-                </div>
-              </div>
-              <div style={{display:"flex",gap:6}}>
-                <button className="btn btn-ghost btn-sm btn-icon" onClick={()=>{setEditMeal(meal);setShowMealForm(true);}}><Icon name="edit" size={14}/></button>
-                <button className="btn btn-ghost btn-sm btn-icon" onClick={()=>deleteMeal(meal.id)}><Icon name="trash" size={14}/></button>
-              </div>
+        {/* Calorie budget summary */}
+        {dailyTarget > 0 && (
+          <div style={{marginBottom:16}}>
+            {/* Progress bar */}
+            <div style={{background:"var(--border2)",borderRadius:6,height:8,marginBottom:10,overflow:"hidden"}}>
+              <div style={{
+                height:"100%",
+                width:`${consumedPct}%`,
+                background: overBudget ? "var(--red)" : consumedPct >= 90 ? "var(--green)" : "var(--accent)",
+                borderRadius:6,
+                transition:"width .3s ease",
+              }}/>
             </div>
-            {meal.items?.length>0&&(
-              <div className="meal-items-list">
-                {meal.items.map(it=>(
-                  <div key={it.id} className="meal-item-row">
-                    <span className={`source-badge ${SOURCE_BADGE[it.source_type]}`}>{it.source_type}</span>
-                    <span style={{fontWeight:500}}>{it.food_name} <span style={{color:"var(--text2)",fontWeight:400}}>×{it.quantity}</span></span>
-                    <span style={{color:"var(--red)"}}>P:{((it.protein_g||0)*(it.quantity||1)).toFixed(1)}g</span>
-                    <span style={{color:"var(--orange)"}}>C:{((it.carbs_g||0)*(it.quantity||1)).toFixed(1)}g</span>
-                    <span style={{color:"var(--yellow)"}}>F:{((it.fat_g||0)*(it.quantity||1)).toFixed(1)}g</span>
-                  </div>
-                ))}
+            {/* Stats row */}
+            <div style={{display:"flex",gap:20,flexWrap:"wrap"}}>
+              {[
+                ["Consumed",  `${totalConsumedKcal.toFixed(0)} kcal`, overBudget ? "var(--red)" : "var(--text)"],
+                ["Target",    `${dailyTarget.toFixed(0)} kcal`,        dayFilter==="off" ? "var(--yellow)" : "var(--green)"],
+                ["Remaining", `${Math.abs(remainingKcal).toFixed(0)} kcal ${overBudget?"over":"left"}`,
+                               overBudget ? "var(--red)" : remainingKcal < dailyTarget*0.1 ? "var(--orange)" : "var(--text2)"],
+              ].map(([l,v,c]) => (
+                <div key={l}>
+                  <div style={{fontSize:10,color:"var(--muted)",textTransform:"uppercase",fontWeight:700,letterSpacing:.4}}>{l}</div>
+                  <div style={{fontWeight:700,fontSize:14,color:c}}>{v}</div>
+                </div>
+              ))}
+            </div>
+            {/* Over-budget warning */}
+            {overBudget && (
+              <div style={{marginTop:10,padding:"10px 14px",background:"rgba(255,59,48,.1)",
+                border:"1px solid rgba(255,59,48,.35)",borderRadius:8,
+                display:"flex",alignItems:"center",gap:10,fontSize:13,color:"var(--red)"}}>
+                <Icon name="alert" size={15} color="var(--red)"/>
+                <span>
+                  <strong>Over budget by {Math.abs(remainingKcal).toFixed(0)} kcal</strong> — total for {dayFilter === "off" ? "rest" : "training"} day meals exceeds your daily target of {dailyTarget.toFixed(0)} kcal.
+                </span>
               </div>
             )}
           </div>
-        ))}
+        )}
+
+        {filteredMeals.length===0 && (
+          <EmptyState icon="apple" title={`No ${dayFilter==="training"?"Training":"Rest"} Day Meals`}
+            message="Create a meal to start tracking your nutrition."/>
+        )}
+
+        {filteredMeals.map(meal=>{
+          const totalKcal = meal.items?.reduce((s,it)=>s+(it.protein_g||0)*4+(it.carbs_g||0)*4+(it.fat_g||0)*9, 0)||0;
+          const totalP    = meal.items?.reduce((s,it)=>s+(it.protein_g||0),0)||0;
+          const totalC    = meal.items?.reduce((s,it)=>s+(it.carbs_g||0),0)||0;
+          const totalF    = meal.items?.reduce((s,it)=>s+(it.fat_g||0),0)||0;
+          return (
+            <div key={meal.id} className="meal-card">
+              <div className="meal-card-header">
+                <div style={{flex:1}}>
+                  <div className="meal-name">{meal.name}</div>
+                  <div className="meal-summary">
+                    {meal.items?.length||0} items ·
+                    <span style={{color:"var(--green)",fontWeight:600}}> {totalKcal.toFixed(0)} kcal</span>
+                    <span style={{color:"var(--muted)"}}> · P:{totalP.toFixed(0)}g C:{totalC.toFixed(0)}g F:{totalF.toFixed(0)}g</span>
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:6}}>
+                  <button className="btn btn-ghost btn-sm btn-icon" onClick={()=>{setEditMeal(meal);setShowMealForm(true);}}>
+                    <Icon name="edit" size={14}/>
+                  </button>
+                  <button className="btn btn-ghost btn-sm btn-icon" onClick={()=>deleteMeal(meal.id)}>
+                    <Icon name="trash" size={14}/>
+                  </button>
+                </div>
+              </div>
+
+              {meal.items?.length>0&&(
+                <div className="meal-items-list">
+                  {meal.items.map(it=>{
+                    const itKcal = Math.round((it.protein_g||0)*4+(it.carbs_g||0)*4+(it.fat_g||0)*9);
+                    const displayWeight = it.weight_g ? `${it.weight_g}g` : (it.serving_size || "");
+                    return (
+                      <div key={it.id} style={{
+                        padding:"8px 10px",borderRadius:7,background:"var(--surface2)",
+                        marginBottom:5,borderLeft:"2px solid var(--border2)"
+                      }}>
+                        {/* Row 1: badge + name + weight + kcal */}
+                        <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                          <span className={`source-badge ${srcBadge(it.source_type)}`} style={{fontSize:10,padding:"1px 7px",flexShrink:0}}>
+                            {srcLabel(it.source_type)}
+                          </span>
+                          <span style={{fontWeight:600,fontSize:13,flex:1,minWidth:0}}>{it.food_name}</span>
+                          {displayWeight && (
+                            <span style={{fontSize:11,color:"var(--muted)",fontWeight:500,flexShrink:0}}>
+                              {displayWeight}
+                            </span>
+                          )}
+                          <span style={{color:"var(--green)",fontSize:12,fontWeight:700,flexShrink:0}}>
+                            {itKcal} kcal
+                          </span>
+                        </div>
+                        {/* Row 2: macros */}
+                        <div style={{display:"flex",gap:12,marginTop:4,fontSize:11,flexWrap:"wrap"}}>
+                          <span><span style={{color:"var(--red)",fontWeight:600}}>P</span> {(it.protein_g||0).toFixed(1)}g</span>
+                          <span><span style={{color:"var(--orange)",fontWeight:600}}>C</span> {(it.carbs_g||0).toFixed(1)}g</span>
+                          <span><span style={{color:"var(--yellow)",fontWeight:600}}>F</span> {(it.fat_g||0).toFixed(1)}g</span>
+                          {(it.fiber_g||0) > 0 && <span style={{color:"var(--text2)"}}>Fiber {(it.fiber_g||0).toFixed(1)}g</span>}
+                          {(it.sodium_mg||0) > 0 && <span style={{color:"var(--text2)"}}>Na {(it.sodium_mg||0).toFixed(0)}mg</span>}
+                          {(it.potassium_mg||0) > 0 && <span style={{color:"var(--text2)"}}>K {(it.potassium_mg||0).toFixed(0)}mg</span>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
-      {showMealForm && <MealDialog meal={editMeal} athleteId={athleteId} units={units} onSave={loadAll} onClose={()=>{setShowMealForm(false);setEditMeal(null);}} toast={toast}/>}
+      {showMealForm && (
+        <MealDialog meal={editMeal} athleteId={athleteId} units={units} toast={toast}
+          onSave={loadAll}
+          onClose={()=>{setShowMealForm(false);setEditMeal(null);}}/>
+      )}
       {Confirmer}
     </div>
   );

@@ -32,6 +32,57 @@
   --shadow-lg: 0 8px 48px rgba(0,0,0,.6);
 }
 
+/* ─── Light Theme ───────────────────────────────────────────────────────────── */
+html[data-theme="light"] {
+  --bg:         #f0f2f8;
+  --surface:    #ffffff;
+  --surface2:   #f4f6fc;
+  --surface3:   #eaecf5;
+  --border:     #dde1ee;
+  --border2:    #c5cce0;
+  --accent:     #3370e8;
+  --accent-dim: rgba(51,112,232,.11);
+  --accent2:    #6b4db8;
+  --green:      #15803d;
+  --green-dim:  rgba(21,128,61,.11);
+  --red:        #dc2626;
+  --red-dim:    rgba(220,38,38,.11);
+  --orange:     #c2600a;
+  --orange-dim: rgba(194,96,10,.11);
+  --yellow:     #92650a;
+  --yellow-dim: rgba(146,101,10,.11);
+  --purple:     #7c3aed;
+  --purple-dim: rgba(124,58,237,.11);
+  --text:       #1a1c2e;
+  --text2:      #46506e;
+  --muted:      #7880a0;
+  --shadow:     0 4px 24px rgba(0,0,0,.08);
+  --shadow-lg:  0 8px 48px rgba(0,0,0,.14);
+}
+
+/* Apply light background directly to key surfaces in light mode */
+html[data-theme="light"] body {
+  background: #f0f2f8;
+  color: #1a1c2e;
+}
+html[data-theme="light"] .app-header {
+  background: #ffffff;
+  border-bottom-color: #dde1ee;
+}
+html[data-theme="light"] .app-tabs {
+  background: #ffffff;
+  border-bottom-color: #dde1ee;
+}
+html[data-theme="light"] .app-content {
+  background: #f0f2f8;
+}
+html[data-theme="light"] .card,
+html[data-theme="light"] .dialog,
+html[data-theme="light"] .overlay > .dialog {
+  background: #ffffff;
+  border-color: #dde1ee;
+}
+
 body {
   background: var(--bg);
   color: var(--text);
@@ -40,6 +91,7 @@ body {
   line-height: 1.5;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
+  transition: background .2s ease, color .2s ease;
 }
 
 /* ─── Layout ────────────────────────────────────────────────────────────────── */
@@ -163,6 +215,27 @@ body {
   transition: all .15s;
 }
 .version-badge:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Theme Toggle */
+.theme-toggle {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text2);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all .15s;
+  flex-shrink: 0;
+}
+.theme-toggle:hover {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  color: var(--accent);
+}
 
 /* ─── Tabs ──────────────────────────────────────────────────────────────────── */
 .app-tabs {
@@ -694,7 +767,8 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(.6); curs
   font-size: 11px;
   font-weight: 700;
 }
-.sup-am { background: var(--yellow-dim); color: var(--yellow); }
+.sup-am    { background: var(--yellow-dim); color: var(--yellow); }
+.sup-intra { background: rgba(52,199,89,.15); color: var(--green); }
 .sup-pm { background: var(--purple-dim); color: var(--purple); }
 .sup-name   { font-weight: 600; font-size: 13px; }
 .sup-dosage { font-size: 12px; color: var(--text2); }
@@ -735,9 +809,13 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(.6); curs
   font-size: 10px;
   font-weight: 700;
 }
-.src-protein { background: var(--red-dim);    color: var(--red); }
-.src-carb    { background: var(--orange-dim); color: var(--orange); }
-.src-fat     { background: var(--yellow-dim); color: var(--yellow); }
+.src-protein    { background: var(--red-dim);    color: var(--red); }
+.src-carb       { background: var(--orange-dim); color: var(--orange); }
+.src-fat        { background: var(--yellow-dim); color: var(--yellow); }
+.src-vegetable  { background: var(--green-dim);  color: var(--green); }
+.src-fruit      { background: rgba(168,85,247,.12); color: var(--purple); }
+.src-dairy      { background: rgba(79,142,247,.14); color: var(--accent); }
+.src-supplement { background: rgba(124,92,191,.14); color: var(--accent2); }
 
 /* ─── Admin ─────────────────────────────────────────────────────────────────── */
 .admin-section {

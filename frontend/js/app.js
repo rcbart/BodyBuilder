@@ -19,8 +19,19 @@ function App() {
   const [showVer, setShowVer]         = useState(false);
   const [showManage, setShowManage]   = useState(false);
   const [menuOpen, setMenuOpen]       = useState(false);
+  const [theme, setTheme]             = useState(() => localStorage.getItem("bb-theme") || "dark");
   const menuRef                       = useRef(null);
   const toast                         = useToast();
+
+  // Apply theme to <html> and persist
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("bb-theme", theme);
+  }, [theme]);
+
+  function toggleTheme() {
+    setTheme(t => t === "dark" ? "light" : "dark");
+  }
 
   useEffect(() => {
     loadAthletes();
@@ -124,6 +135,15 @@ function App() {
           <div className="version-badge" onClick={() => setShowVer(true)} title="Click to set version">
             v{version.major}.{version.minor}.{version.tiny}
           </div>
+
+          {/* Theme toggle */}
+          <button
+            className="theme-toggle"
+            onClick={toggleTheme}
+            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          >
+            <Icon name={theme === "dark" ? "sun" : "moon"} size={15}/>
+          </button>
         </div>
       </header>
 

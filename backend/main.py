@@ -12,8 +12,13 @@ import sqlite3
 import json
 import io
 import os
+import re
 import smtplib
 import tempfile
+import threading
+import time
+import urllib.request
+import urllib.parse
 from pathlib import Path
 from datetime import date, datetime, timedelta
 from email.mime.multipart import MIMEMultipart
@@ -23,13 +28,190 @@ from email import encoders
 
 app = FastAPI(title="BodyBuilder API")
 app.add_middleware(
-    CORSMiddleware, allow_origins=["*"], allow_credentials=True,
-    allow_methods=["*"], allow_headers=["*"],
+    CORSMiddleware,
+    allow_origins=["http://localhost:8000", "http://127.0.0.1:8000"],
+    allow_credentials=True,
+    allow_methods=["GET","POST","PUT","DELETE","OPTIONS"],
+    allow_headers=["Content-Type","Accept"],
 )
 
 BASE_DIR = Path(__file__).parent
 DB_PATH = str(BASE_DIR / "bodybuilder.db")
 FRONTEND_DIR = BASE_DIR.parent / "frontend"
+EXERCISE_IMAGES_DIR = BASE_DIR / "exercise_images"
+EXERCISE_IMAGES_DIR.mkdir(exist_ok=True)
+
+# ── All exercises eligible for image seeding ──────────────────────────────────
+EXERCISE_ALL = [
+    # Chest
+    "Barbell Bench Press","Dumbbell Bench Press","Incline Bench Press","Decline Bench Press",
+    "Push-Up","Cable Fly","Dumbbell Fly","Chest Dip","Cable Crossover","Pec Deck",
+    # Back
+    "Pull-Up","Chin-Up","Barbell Row","Dumbbell Row","Cable Row","Lat Pulldown",
+    "T-Bar Row","Face Pull","Deadlift","Rack Pull",
+    # Shoulders
+    "Barbell Overhead Press","Dumbbell Overhead Press","Lateral Raise","Front Raise",
+    "Rear Delt Fly","Cable Lateral Raise","Upright Row","Arnold Press","Shrug",
+    # Biceps
+    "Barbell Curl","Dumbbell Curl","Hammer Curl","Cable Curl","Preacher Curl",
+    "Incline Dumbbell Curl","Concentration Curl","Spider Curl",
+    # Triceps
+    "Close-Grip Bench Press","Tricep Pushdown","Overhead Tricep Extension",
+    "Skull Crusher","Dip","Cable Kickback","Diamond Push-Up",
+    # Forearms
+    "Wrist Curl","Reverse Wrist Curl","Farmer's Walk","Pinch Grip Hold",
+    # Quads
+    "Barbell Squat","Front Squat","Leg Press","Hack Squat","Bulgarian Split Squat",
+    "Leg Extension","Lunge","Step-Up","Goblet Squat",
+    # Hamstrings
+    "Romanian Deadlift","Leg Curl","Good Morning","Glute-Ham Raise",
+    "Nordic Hamstring Curl","Stiff-Leg Deadlift",
+    # Glutes
+    "Hip Thrust","Sumo Deadlift","Glute Bridge","Clamshell","Abductor Machine",
+    # Calves
+    "Standing Calf Raise","Seated Calf Raise","Donkey Calf Raise","Single-Leg Calf Raise",
+    # Core
+    "Plank","Cable Crunch","Hanging Leg Raise","Ab Rollout","Side Plank",
+    "Russian Twist","Crunch","Sit-Up","Pallof Press",
+    # Cardio
+    "Treadmill Run","Cycling","Rowing","Jump Rope","Stair Climber","Sled Push","Battle Ropes",
+    # Full Body
+    "Clean and Press","Kettlebell Swing","Burpee","Box Jump","Thruster","Turkish Get-Up",
+]
+
+# ── Image seed state (in-memory, reset on server restart) ─────────────────────
+_seed_state = {"running": False, "done": 0, "total": len(EXERCISE_ALL), "errors": 0}
+
+
+def _slugify(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+
+_WGER_HEADERS = {"User-Agent": "BodyBuilderApp/1.0", "Accept": "application/json"}
+_WGER_TIMEOUT = 30
+_WGER_RETRIES = 3
+
+
+def _fetch_json(url: str) -> dict:
+    for attempt in range(1, _WGER_RETRIES + 1):
+        try:
+            req = urllib.request.Request(url, headers=_WGER_HEADERS)
+            with urllib.request.urlopen(req, timeout=_WGER_TIMEOUT) as r:
+                return json.loads(r.read())
+        except Exception:
+            if attempt < _WGER_RETRIES:
+                time.sleep(attempt * 2)
+    return {}
+
+
+def _build_wger_index() -> dict:
+    """Page through Wger exercise translations and return name.lower() -> base_id."""
+    index: dict = {}
+    url = ("https://wger.de/api/v2/exercisetranslation/?"
+           + urllib.parse.urlencode({"format": "json", "language": 2, "limit": 100}))
+    while url:
+        data = _fetch_json(url)
+        for item in data.get("results", []):
+            name = (item.get("name") or "").strip()
+            bid  = item.get("exercise_base")
+            if name and bid:
+                index[name.lower()] = bid
+        url = data.get("next")
+        time.sleep(0.3)
+    return index
+
+
+def _best_match(name: str, index: dict):
+    attempts = list(dict.fromkeys([
+        name.lower(),
+        name.lower().split("(")[0].strip(),
+        name.lower().split("/")[0].strip(),
+        name.lower().replace("-", " "),
+        " ".join(name.lower().split()[:-1]),
+    ]))
+    for attempt in attempts:
+        if not attempt:
+            continue
+        if attempt in index:
+            return index[attempt]
+        for wger_name, bid in index.items():
+            if attempt in wger_name:
+                return bid
+    return None
+
+
+def _wger_image_url(base_id: int):
+    url = ("https://wger.de/api/v2/exerciseimage/?"
+           + urllib.parse.urlencode({"exercise_base": base_id, "format": "json"}))
+    data = _fetch_json(url)
+    results = data.get("results", [])
+    mains = [x for x in results if x.get("is_main")]
+    src = mains[0] if mains else (results[0] if results else None)
+    return src["image"] if src else None
+
+
+def _download_image(img_url: str, save_path: Path) -> bool:
+    for attempt in range(1, _WGER_RETRIES + 1):
+        try:
+            req = urllib.request.Request(img_url, headers=_WGER_HEADERS)
+            with urllib.request.urlopen(req, timeout=_WGER_TIMEOUT) as r:
+                data = r.read()
+                if len(data) > 500:
+                    save_path.write_bytes(data)
+                    return True
+        except Exception:
+            if attempt < _WGER_RETRIES:
+                time.sleep(attempt * 2)
+    return False
+
+
+def _run_seed(force: bool = False):
+    """Background thread: build Wger index then fetch and cache exercise images."""
+    global _seed_state
+    _seed_state.update({"running": True, "done": 0, "errors": 0, "total": len(EXERCISE_ALL)})
+    conn = get_db()
+    try:
+        index = _build_wger_index()
+        if not index:
+            _seed_state["running"] = False
+            return
+
+        for name in EXERCISE_ALL:
+            row = conn.execute(
+                "SELECT image_path FROM exercise_images WHERE name=?", (name,)
+            ).fetchone()
+            already_cached = (
+                row and row["image_path"]
+                and (EXERCISE_IMAGES_DIR / row["image_path"]).exists()
+            )
+            if already_cached and not force:
+                _seed_state["done"] += 1
+                continue
+
+            slug = _slugify(name)
+            img_file = f"{slug}.jpg"
+            save_path = EXERCISE_IMAGES_DIR / img_file
+
+            base_id = _best_match(name, index)
+            if base_id:
+                img_url = _wger_image_url(base_id)
+                if img_url and _download_image(img_url, save_path):
+                    conn.execute(
+                        "INSERT OR REPLACE INTO exercise_images (name, image_path, source)"
+                        " VALUES (?, ?, 'wger')",
+                        (name, img_file)
+                    )
+                    conn.commit()
+                    _seed_state["done"] += 1
+                else:
+                    _seed_state["errors"] += 1
+            else:
+                _seed_state["errors"] += 1
+
+            time.sleep(0.4)
+    finally:
+        conn.close()
+        _seed_state["running"] = False
 
 
 # ─── DB Helpers ───────────────────────────────────────────────────────────────
@@ -182,6 +364,21 @@ def init_db():
         FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE
     )""")
 
+    # ── food_swaps ──
+    c.execute("""CREATE TABLE IF NOT EXISTS food_swaps (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        athlete_id INTEGER NOT NULL,
+        category TEXT DEFAULT 'carbs',
+        source_name TEXT DEFAULT '',
+        source_amount REAL DEFAULT 100,
+        source_unit TEXT DEFAULT 'g',
+        swap_name TEXT DEFAULT '',
+        swap_amount REAL DEFAULT 100,
+        swap_unit TEXT DEFAULT 'g',
+        sort_order INTEGER DEFAULT 0,
+        FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE
+    )""")
+
     # ── workout_plans ──
     c.execute("""CREATE TABLE IF NOT EXISTS workout_plans (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -224,7 +421,7 @@ def init_db():
     )""")
     # Migrate old exercise columns
     for col, defval in [("muscle_group","''"), ("rep_range","''"), ("rir","2"),
-                        ("tempo","''"), ("intensifiers","''")]:
+                        ("tempo","''"), ("intensifiers","''"), ("image_url","''")]:
         if not _col_exists(conn, "workout_exercises", col):
             c.execute(f"ALTER TABLE workout_exercises ADD COLUMN {col} TEXT DEFAULT {defval}")
     # Migrate set_type 'main' → 'working'
@@ -272,6 +469,13 @@ def init_db():
         potassium_mg REAL DEFAULT 0,
         sort_order INTEGER DEFAULT 0,
         FOREIGN KEY (meal_id) REFERENCES meals(id) ON DELETE CASCADE
+    )""")
+
+    # ── exercise_images ──
+    c.execute("""CREATE TABLE IF NOT EXISTS exercise_images (
+        name TEXT PRIMARY KEY,
+        image_path TEXT DEFAULT '',
+        source TEXT DEFAULT 'wger'
     )""")
 
     # ── smtp_settings ──
@@ -506,6 +710,38 @@ class FoodModel(BaseModel):
         return v.strip()
 
 
+class FoodSwapModel(BaseModel):
+    category: str = "carbs"
+    source_name: str = ""
+    source_amount: Optional[float] = 100
+    source_unit: Optional[str] = "g"
+    swap_name: str = ""
+    swap_amount: Optional[float] = 100
+    swap_unit: Optional[str] = "g"
+    sort_order: Optional[int] = 0
+
+    @field_validator("category")
+    @classmethod
+    def swap_cat_v(cls, v):
+        if v not in ("fruits_veg", "fats", "carbs"): raise ValueError("Invalid category")
+        return v
+    @field_validator("source_unit", "swap_unit")
+    @classmethod
+    def swap_unit_v(cls, v):
+        if v not in ("g", "oz", "ml"): raise ValueError("Unit must be g, oz, or ml")
+        return v
+    @field_validator("source_amount", "swap_amount")
+    @classmethod
+    def swap_amount_v(cls, v):
+        if v is not None and (v < 0 or v > 10000): raise ValueError("Amount 0–10000")
+        return v
+    @field_validator("source_name", "swap_name")
+    @classmethod
+    def swap_name_v(cls, v):
+        if v and len(v) > 150: raise ValueError("Max 150 chars")
+        return (v or "").strip()
+
+
 class VersionModel(BaseModel):
     major: int
     minor: int
@@ -601,23 +837,68 @@ class WorkoutExerciseModel(BaseModel):
     tempo: Optional[str] = ""
     intensifiers: Optional[str] = ""
     exercise_notes: Optional[str] = ""
+    image_url: Optional[str] = ""
     sort_order: Optional[int] = 0
+
+
     @field_validator("name")
     @classmethod
-    def name_v(cls, v):
+    def ex_name_v(cls, v):
         if not v or not v.strip(): raise ValueError("Exercise name required")
-        if len(v)>100: raise ValueError("Max 100 chars")
+        if len(v) > 100: raise ValueError("Max 100 chars")
         return v.strip()
     @field_validator("set_type")
     @classmethod
-    def type_v(cls, v):
+    def ex_type_v(cls, v):
         if v not in ("warm_up","working","drop_set"): raise ValueError("warm_up/working/drop_set")
         return v
     @field_validator("rir")
     @classmethod
-    def rir_v(cls, v):
+    def ex_rir_v(cls, v):
         if v is not None and (v < 0 or v > 10): raise ValueError("RIR 0–10")
         return v
+    @field_validator("image_url")
+    @classmethod
+    def ex_image_url_v(cls, v):
+        if not v: return ""
+        v = v.strip()
+        if len(v) > 500: raise ValueError("URL too long (max 500 chars)")
+        if v and not (v.startswith("http://") or v.startswith("https://")):
+            raise ValueError("Image URL must start with http:// or https://")
+        return v
+    @field_validator("sets_json")
+    @classmethod
+    def ex_sets_v(cls, v):
+        if v is None: return []
+        if len(v) > 50: raise ValueError("Max 50 sets per exercise")
+        allowed_set_keys = {"set_number","type","weight","reps","rep_range","rir","tempo","notes"}
+        allowed_types = {"W","M","I"}
+        for i, s in enumerate(v):
+            if not isinstance(s, dict): raise ValueError(f"Set {i+1} must be an object")
+            extra = set(s.keys()) - allowed_set_keys
+            if extra: raise ValueError(f"Set {i+1} has unexpected fields: {extra}")
+            if "type" in s and s["type"] not in allowed_types:
+                raise ValueError(f"Set {i+1} type must be W, M, or I")
+            if "weight" in s:
+                try:
+                    w = float(s["weight"])
+                    if w < 0 or w > 5000: raise ValueError(f"Set {i+1} weight out of range (0–5000)")
+                except (TypeError, ValueError) as e:
+                    if "out of range" in str(e): raise
+                    raise ValueError(f"Set {i+1} weight must be numeric")
+            if "reps" in s:
+                try:
+                    r = int(s["reps"])
+                    if r < 0 or r > 200: raise ValueError(f"Set {i+1} reps out of range (0–200)")
+                except (TypeError, ValueError) as e:
+                    if "out of range" in str(e): raise
+                    raise ValueError(f"Set {i+1} reps must be an integer")
+        return v
+    @field_validator("rep_range","tempo","intensifiers","exercise_notes","muscle_group")
+    @classmethod
+    def ex_str_v(cls, v):
+        if v and len(v) > 500: raise ValueError("Field exceeds max length")
+        return v or ""
 
 
 class SupplementModel(BaseModel):
@@ -641,7 +922,7 @@ class SupplementModel(BaseModel):
     @field_validator("time_of_day")
     @classmethod
     def tod_v(cls, v):
-        if v not in ("AM","PM"): raise ValueError("AM or PM")
+        if v not in ("AM","Intra","PM"): raise ValueError("AM, Intra, or PM")
         return v
 
 
@@ -678,7 +959,8 @@ class MealItemModel(BaseModel):
     @field_validator("source_type")
     @classmethod
     def st_v(cls, v):
-        if v not in ("protein","carb","fat"): raise ValueError("protein/carb/fat")
+        allowed = ("protein","carb","fat","vegetable","fruit","dairy","supplement")
+        if v not in allowed: raise ValueError("Invalid source type")
         return v
     @field_validator("food_name")
     @classmethod
@@ -941,7 +1223,12 @@ def get_meal_plan(athlete_id: int):
     row = dict(conn.execute("SELECT * FROM meal_plans WHERE athlete_id=?", (athlete_id,)).fetchone())
     conn.close()
     dc = get_daily_calories(athlete_id)
-    row["rmr"] = dc["rmr"]; row["daily_calorie_intake"] = dc["total_calories"]
+    ath = get_athlete(athlete_id)
+    deficit = float(ath.get("deficit", 0))
+    rmr = dc["rmr"]
+    row["rmr"] = rmr
+    row["daily_calorie_intake"] = dc["total_calories"]
+    row["rest_day_calories"] = round(max(0, rmr * 1.0 - deficit), 1)
     return row
 
 @app.put("/api/athletes/{athlete_id}/meal-plan")
@@ -1002,6 +1289,53 @@ def delete_food(athlete_id: int, food_id: int):
     conn.execute("DELETE FROM nutrition_foods WHERE id=? AND athlete_id=?", (food_id,athlete_id))
     conn.commit(); conn.close()
     return {"deleted": food_id}
+
+
+# ─── Food Swaps ───────────────────────────────────────────────────────────────
+
+@app.get("/api/athletes/{athlete_id}/food-swaps")
+def get_food_swaps(athlete_id: int):
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM food_swaps WHERE athlete_id=? ORDER BY category, sort_order, id",
+        (athlete_id,)).fetchall()
+    conn.close(); return [dict(r) for r in rows]
+
+@app.post("/api/athletes/{athlete_id}/food-swaps")
+def create_food_swap(athlete_id: int, body: FoodSwapModel):
+    conn = get_db()
+    cur = conn.execute(
+        """INSERT INTO food_swaps
+           (athlete_id,category,source_name,source_amount,source_unit,swap_name,swap_amount,swap_unit,sort_order)
+           VALUES (?,?,?,?,?,?,?,?,?)""",
+        (athlete_id, body.category, body.source_name, body.source_amount, body.source_unit,
+         body.swap_name, body.swap_amount, body.swap_unit, body.sort_order))
+    sid = cur.lastrowid; conn.commit()
+    row = conn.execute("SELECT * FROM food_swaps WHERE id=?", (sid,)).fetchone()
+    conn.close(); return dict(row)
+
+@app.put("/api/athletes/{athlete_id}/food-swaps/{swap_id}")
+def update_food_swap(athlete_id: int, swap_id: int, body: FoodSwapModel):
+    conn = get_db()
+    row = conn.execute("SELECT id FROM food_swaps WHERE id=? AND athlete_id=?", (swap_id, athlete_id)).fetchone()
+    if not row: raise HTTPException(404, "Swap not found")
+    conn.execute(
+        """UPDATE food_swaps SET category=?,source_name=?,source_amount=?,source_unit=?,
+           swap_name=?,swap_amount=?,swap_unit=?,sort_order=? WHERE id=? AND athlete_id=?""",
+        (body.category, body.source_name, body.source_amount, body.source_unit,
+         body.swap_name, body.swap_amount, body.swap_unit, body.sort_order, swap_id, athlete_id))
+    conn.commit()
+    row = conn.execute("SELECT * FROM food_swaps WHERE id=?", (swap_id,)).fetchone()
+    conn.close(); return dict(row)
+
+@app.delete("/api/athletes/{athlete_id}/food-swaps/{swap_id}")
+def delete_food_swap(athlete_id: int, swap_id: int):
+    conn = get_db()
+    row = conn.execute("SELECT id FROM food_swaps WHERE id=? AND athlete_id=?", (swap_id, athlete_id)).fetchone()
+    if not row: raise HTTPException(404, "Swap not found")
+    conn.execute("DELETE FROM food_swaps WHERE id=? AND athlete_id=?", (swap_id, athlete_id))
+    conn.commit(); conn.close()
+    return {"deleted": swap_id}
 
 
 # ─── Supplements ──────────────────────────────────────────────────────────────
@@ -1141,6 +1475,8 @@ def update_meal_item(item_id: int, body: MealItemModel):
 @app.delete("/api/meal-items/{item_id}")
 def delete_meal_item(item_id: int):
     conn = get_db()
+    row = conn.execute("SELECT id FROM meal_items WHERE id=?", (item_id,)).fetchone()
+    if not row: raise HTTPException(404, "Meal item not found")
     conn.execute("DELETE FROM meal_items WHERE id=?", (item_id,))
     conn.commit(); conn.close()
     return {"deleted": item_id}
@@ -1219,6 +1555,11 @@ def create_session(body: WorkoutSessionModel):
 @app.put("/api/workout-sessions/{session_id}")
 def update_session(session_id: int, body: WorkoutSessionModel):
     conn = get_db()
+    # Verify session exists and belongs to the stated plan
+    row = conn.execute("SELECT plan_id FROM workout_sessions WHERE id=?", (session_id,)).fetchone()
+    if not row: raise HTTPException(404, "Session not found")
+    if row["plan_id"] != body.plan_id:
+        raise HTTPException(403, "Session does not belong to that plan")
     conn.execute("""UPDATE workout_sessions SET plan_id=?,day_of_week=?,session_title=?,muscle_groups=?,
         session_notes=?,sort_order=? WHERE id=?""",
         (body.plan_id,body.day_of_week,body.session_title,json.dumps(body.muscle_groups),
@@ -1233,9 +1574,60 @@ def update_session(session_id: int, body: WorkoutSessionModel):
 @app.delete("/api/workout-sessions/{session_id}")
 def delete_session(session_id: int):
     conn = get_db()
+    row = conn.execute("SELECT id FROM workout_sessions WHERE id=?", (session_id,)).fetchone()
+    if not row: raise HTTPException(404, "Session not found")
     conn.execute("DELETE FROM workout_sessions WHERE id=?", (session_id,))
     conn.commit(); conn.close()
     return {"deleted": session_id}
+
+@app.post("/api/workout-sessions/{session_id}/clone")
+def clone_session(session_id: int, body: WorkoutSessionModel):
+    """Create a new session copying all exercises from an existing session as a template."""
+    conn = get_db()
+    # Create the new session
+    cur = conn.execute("""INSERT INTO workout_sessions (plan_id,day_of_week,session_title,muscle_groups,session_notes,sort_order)
+        VALUES (?,?,?,?,?,0)""",
+        (body.plan_id, body.day_of_week, body.session_title,
+         json.dumps(body.muscle_groups), body.session_notes))
+    new_sid = cur.lastrowid
+    # Copy all exercises from source session
+    src_exs = conn.execute("SELECT * FROM workout_exercises WHERE session_id=? ORDER BY sort_order",
+                           (session_id,)).fetchall()
+    for ex in src_exs:
+        conn.execute(
+            """INSERT INTO workout_exercises
+               (session_id,name,muscle_group,set_type,sets_json,rep_range,rir,tempo,intensifiers,exercise_notes,image_url,sort_order)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (new_sid, ex["name"], ex["muscle_group"], ex["set_type"],
+             ex["sets_json"], ex["rep_range"], ex["rir"], ex["tempo"],
+             ex["intensifiers"], ex["exercise_notes"], ex.get("image_url",""),
+             ex["sort_order"]))
+    conn.commit()
+    # Return the full plan so the UI can refresh
+    plan_row = conn.execute("SELECT plan_id FROM workout_sessions WHERE id=?", (new_sid,)).fetchone()
+    result = _load_plan(conn, plan_row["plan_id"])
+    conn.close(); return result
+
+@app.get("/api/athletes/{athlete_id}/workout-sessions/all")
+def list_all_sessions(athlete_id: int):
+    """Return all sessions across all plans, with exercises — used for the template picker."""
+    conn = get_db()
+    plans = conn.execute("SELECT id, title FROM workout_plans WHERE athlete_id=? ORDER BY sort_order, title",
+                         (athlete_id,)).fetchall()
+    result = []
+    for p in plans:
+        sessions = conn.execute(
+            "SELECT * FROM workout_sessions WHERE plan_id=? ORDER BY sort_order, day_of_week",
+            (p["id"],)).fetchall()
+        for s in sessions:
+            sess = dict(s)
+            sess["plan_title"] = p["title"]
+            sess["muscle_groups"] = json.loads(sess.get("muscle_groups") or "[]")
+            exs = conn.execute("SELECT * FROM workout_exercises WHERE session_id=? ORDER BY sort_order",
+                               (s["id"],)).fetchall()
+            sess["exercises"] = [{**dict(e), "sets_json": json.loads(e.get("sets_json") or "[]")} for e in exs]
+            result.append(sess)
+    conn.close(); return result
 
 
 # ─── Workout Exercises ────────────────────────────────────────────────────────
@@ -1245,10 +1637,10 @@ def create_exercise(body: WorkoutExerciseModel):
     conn = get_db()
     cur = conn.execute(
         """INSERT INTO workout_exercises
-           (session_id,name,muscle_group,set_type,sets_json,rep_range,rir,tempo,intensifiers,exercise_notes,sort_order)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+           (session_id,name,muscle_group,set_type,sets_json,rep_range,rir,tempo,intensifiers,exercise_notes,image_url,sort_order)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
         (body.session_id,body.name,body.muscle_group,body.set_type,json.dumps(body.sets_json),
-         body.rep_range,body.rir,body.tempo,body.intensifiers,body.exercise_notes,body.sort_order))
+         body.rep_range,body.rir,body.tempo,body.intensifiers,body.exercise_notes,body.image_url,body.sort_order))
     eid = cur.lastrowid; conn.commit()
     row = conn.execute("SELECT * FROM workout_exercises WHERE id=?", (eid,)).fetchone()
     e = dict(row); e["sets_json"] = json.loads(e.get("sets_json") or "[]")
@@ -1257,11 +1649,16 @@ def create_exercise(body: WorkoutExerciseModel):
 @app.put("/api/workout-exercises/{exercise_id}")
 def update_exercise(exercise_id: int, body: WorkoutExerciseModel):
     conn = get_db()
+    # Verify exercise exists and belongs to the stated session
+    ex_row = conn.execute("SELECT session_id FROM workout_exercises WHERE id=?", (exercise_id,)).fetchone()
+    if not ex_row: raise HTTPException(404, "Exercise not found")
+    if ex_row["session_id"] != body.session_id:
+        raise HTTPException(403, "Exercise does not belong to that session")
     conn.execute(
         """UPDATE workout_exercises SET session_id=?,name=?,muscle_group=?,set_type=?,sets_json=?,
-           rep_range=?,rir=?,tempo=?,intensifiers=?,exercise_notes=?,sort_order=? WHERE id=?""",
+           rep_range=?,rir=?,tempo=?,intensifiers=?,exercise_notes=?,image_url=?,sort_order=? WHERE id=?""",
         (body.session_id,body.name,body.muscle_group,body.set_type,json.dumps(body.sets_json),
-         body.rep_range,body.rir,body.tempo,body.intensifiers,body.exercise_notes,body.sort_order,exercise_id))
+         body.rep_range,body.rir,body.tempo,body.intensifiers,body.exercise_notes,body.image_url,body.sort_order,exercise_id))
     conn.commit()
     row = conn.execute("SELECT * FROM workout_exercises WHERE id=?", (exercise_id,)).fetchone()
     e = dict(row); e["sets_json"] = json.loads(e.get("sets_json") or "[]")
@@ -1270,6 +1667,8 @@ def update_exercise(exercise_id: int, body: WorkoutExerciseModel):
 @app.delete("/api/workout-exercises/{exercise_id}")
 def delete_exercise(exercise_id: int):
     conn = get_db()
+    row = conn.execute("SELECT id FROM workout_exercises WHERE id=?", (exercise_id,)).fetchone()
+    if not row: raise HTTPException(404, "Exercise not found")
     conn.execute("DELETE FROM workout_exercises WHERE id=?", (exercise_id,))
     conn.commit(); conn.close()
     return {"deleted": exercise_id}
@@ -1587,6 +1986,38 @@ def send_program(body: SendProgramModel):
         raise HTTPException(500, f"Failed to send email: {e}")
 
 
+# ─── Exercise Images ──────────────────────────────────────────────────────────
+
+@app.get("/api/exercise-image")
+def get_exercise_image(name: str):
+    """Look up the cached local image path for a named exercise."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT image_path FROM exercise_images WHERE name=?", (name,)
+    ).fetchone()
+    conn.close()
+    if row and row["image_path"] and (EXERCISE_IMAGES_DIR / row["image_path"]).exists():
+        return {"image_url": f"/exercise-images/{row['image_path']}", "found": True}
+    return {"image_url": "", "found": False}
+
+
+@app.post("/api/exercise-images/seed")
+def start_image_seed(force: bool = False):
+    """Kick off a background fetch of exercise images from Wger. Idempotent."""
+    global _seed_state
+    if _seed_state["running"]:
+        return {"status": "already_running", **_seed_state}
+    thread = threading.Thread(target=_run_seed, kwargs={"force": force}, daemon=True)
+    thread.start()
+    return {"status": "started", "total": len(EXERCISE_ALL)}
+
+
+@app.get("/api/exercise-images/seed/status")
+def get_seed_status():
+    """Current state of the image-seeding background job."""
+    return _seed_state
+
+
 # ─── Frontend ─────────────────────────────────────────────────────────────────
 
 @app.get("/")
@@ -1594,6 +2025,9 @@ def serve_frontend():
     index = FRONTEND_DIR / "index.html"
     if index.exists(): return FileResponse(str(index))
     return {"message": "BodyBuilder API running. Open frontend/index.html in your browser."}
+
+# Serve exercise images (must come before the catch-all frontend mount)
+app.mount("/exercise-images", StaticFiles(directory=str(EXERCISE_IMAGES_DIR)), name="exercise_images")
 
 # Serve frontend static assets (css, js, images)
 if FRONTEND_DIR.exists():

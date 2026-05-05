@@ -1,136 +1,373 @@
-// ─── Food Swaps Tab (formerly Nutrition Plan) ─────────────────────────────────
-const FOOD_CATS = ["general","protein","carbs","vegetables","fruits","dairy","fats","supplements"];
+// ─── Food Swaps Tab ────────────────────────────────────────────────────────────
 
-function FoodSwapsTab({ athleteId, toast }) {
-  const [foods, setFoods]     = useState([]);
-  const [search, setSearch]   = useState("");
-  const [filterCat, setFilterCat] = useState("");
-  const [showForm, setShowForm] = useState(false);
-  const [editFood, setEditFood] = useState(null);
-  const { confirm, Confirmer } = useConfirm();
+const SWAP_CATEGORIES = [
+  { key: "fruits_veg", label: "Fruits & Vegetables", icon: "leaf",    color: "var(--green)"  },
+  { key: "fats",       label: "Fats",                icon: "droplet", color: "var(--yellow)" },
+  { key: "carbs",      label: "Carbs",               icon: "zap",     color: "var(--accent)" },
+];
 
-  useEffect(() => { loadFoods(); }, [athleteId]);
-  async function loadFoods() { const d=await apiGet(`/athletes/${athleteId}/foods`); setFoods(d); }
+const SWAP_UNITS = ["g", "oz", "ml"];
 
-  const filtered = foods.filter(f=>
-    (!filterCat||f.category===filterCat) &&
-    (!search||f.name.toLowerCase().includes(search.toLowerCase()))
+// ── Inline-editable swap row ───────────────────────────────────────────────────
+function SwapRow({ swap, athleteId, onSaved, onDeleted, toast }) {
+  const [f, setF]       = useState({ ...swap });
+  const [saving, setSaving] = useState(false);
+  const sf = (k, v) => setF(p => ({ ...p, [k]: v }));
+
+  const dirty = ["source_name","source_amount","source_unit","swap_name","swap_amount","swap_unit"]
+    .some(k => String(f[k]) !== String(swap[k]));
+
+  async function save() {
+    if (!f.source_name.trim() && !f.swap_name.trim()) return;
+    setSaving(true);
+    try {
+      const updated = await apiPut(`/athletes/${athleteId}/food-swaps/${swap.id}`, {
+        category:      f.category,
+        source_name:   f.source_name,
+        source_amount: +f.source_amount,
+        source_unit:   f.source_unit,
+        swap_name:     f.swap_name,
+        swap_amount:   +f.swap_amount,
+        swap_unit:     f.swap_unit,
+        sort_order:    f.sort_order,
+      });
+      onSaved(updated);
+      toast.show("Swap saved", "success");
+    } catch(err) { toast.show(err.message, "error"); }
+    setSaving(false);
+  }
+
+  async function del() {
+    setSaving(true);
+    try {
+      await apiDel(`/athletes/${athleteId}/food-swaps/${swap.id}`);
+      onDeleted(swap.id);
+    } catch(err) { toast.show(err.message, "error"); setSaving(false); }
+  }
+
+  const inputStyle = {
+    background: "var(--surface)",
+    border: "1px solid var(--border2)",
+    borderRadius: 6,
+    padding: "6px 8px",
+    color: "var(--text)",
+    fontFamily: "var(--font)",
+    fontSize: 13,
+    width: "100%",
+  };
+  const numStyle = { ...inputStyle, width: 72 };
+  const selStyle = { ...inputStyle, width: 66 };
+
+  return (
+    <tr style={{ borderBottom: "1px solid var(--border)" }}>
+      {/* Source food */}
+      <td style={{ padding: "8px 10px" }}>
+        <input value={f.source_name} maxLength={150}
+          onChange={ev => sf("source_name", ev.target.value)}
+          placeholder="Source food…"
+          style={inputStyle}/>
+      </td>
+      {/* Source amount */}
+      <td style={{ padding: "8px 6px" }}>
+        <input type="number" min="0" max="10000" step="0.1"
+          value={f.source_amount}
+          onChange={ev => sf("source_amount", ev.target.value)}
+          style={numStyle}/>
+      </td>
+      {/* Source unit */}
+      <td style={{ padding: "8px 6px" }}>
+        <select value={f.source_unit} onChange={ev => sf("source_unit", ev.target.value)} style={selStyle}>
+          {SWAP_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+        </select>
+      </td>
+      {/* Arrow */}
+      <td style={{ padding: "8px 10px", textAlign: "center", color: "var(--muted)", fontSize: 18, userSelect: "none" }}>
+        ⇄
+      </td>
+      {/* Swap food */}
+      <td style={{ padding: "8px 10px" }}>
+        <input value={f.swap_name} maxLength={150}
+          onChange={ev => sf("swap_name", ev.target.value)}
+          placeholder="Equivalent food…"
+          style={inputStyle}/>
+      </td>
+      {/* Swap amount */}
+      <td style={{ padding: "8px 6px" }}>
+        <input type="number" min="0" max="10000" step="0.1"
+          value={f.swap_amount}
+          onChange={ev => sf("swap_amount", ev.target.value)}
+          style={numStyle}/>
+      </td>
+      {/* Swap unit */}
+      <td style={{ padding: "8px 6px" }}>
+        <select value={f.swap_unit} onChange={ev => sf("swap_unit", ev.target.value)} style={selStyle}>
+          {SWAP_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+        </select>
+      </td>
+      {/* Actions */}
+      <td style={{ padding: "8px 8px", whiteSpace: "nowrap" }}>
+        <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+          {dirty && (
+            <button className="btn btn-primary btn-sm btn-icon" title="Save" onClick={save} disabled={saving}>
+              {saving ? <Spinner/> : <Icon name="save" size={13}/>}
+            </button>
+          )}
+          <button className="btn btn-ghost btn-sm btn-icon" title="Delete" onClick={del} disabled={saving}>
+            <Icon name="trash" size={13}/>
+          </button>
+        </div>
+      </td>
+    </tr>
   );
+}
 
-  async function deleteFood(food) {
-    const ok = await confirm("Delete Food","Remove this food from your database?");
-    if (!ok) return;
-    await apiDel(`/athletes/${athleteId}/foods/${food.id}`);
-    loadFoods();
-    toast.show("Food deleted","success");
+// ── New row (unsaved) ──────────────────────────────────────────────────────────
+function NewSwapRow({ category, athleteId, onSaved, onCancel, toast }) {
+  const [f, setF]       = useState({
+    source_name: "", source_amount: 100, source_unit: "g",
+    swap_name:   "", swap_amount:   100, swap_unit:   "g",
+  });
+  const [saving, setSaving] = useState(false);
+  const sf = (k, v) => setF(p => ({ ...p, [k]: v }));
+
+  async function save() {
+    if (!f.source_name.trim() || !f.swap_name.trim()) {
+      toast.show("Both food names are required", "error"); return;
+    }
+    setSaving(true);
+    try {
+      const created = await apiPost(`/athletes/${athleteId}/food-swaps`, {
+        category,
+        source_name:   f.source_name,
+        source_amount: +f.source_amount,
+        source_unit:   f.source_unit,
+        swap_name:     f.swap_name,
+        swap_amount:   +f.swap_amount,
+        swap_unit:     f.swap_unit,
+        sort_order:    0,
+      });
+      onSaved(created);
+      toast.show("Swap added", "success");
+    } catch(err) { toast.show(err.message, "error"); setSaving(false); }
+  }
+
+  const inputStyle = {
+    background: "var(--surface)",
+    border: "1px solid var(--accent)",
+    borderRadius: 6,
+    padding: "6px 8px",
+    color: "var(--text)",
+    fontFamily: "var(--font)",
+    fontSize: 13,
+    width: "100%",
+  };
+  const numStyle = { ...inputStyle, width: 72 };
+  const selStyle = { ...inputStyle, width: 66 };
+
+  return (
+    <tr style={{ borderBottom: "1px solid var(--border)", background: "var(--accent-dim)" }}>
+      <td style={{ padding: "8px 10px" }}>
+        <input value={f.source_name} maxLength={150} autoFocus
+          onChange={ev => sf("source_name", ev.target.value)}
+          placeholder="Source food…" style={inputStyle}
+          onKeyDown={ev => ev.key === "Enter" && save()}/>
+      </td>
+      <td style={{ padding: "8px 6px" }}>
+        <input type="number" min="0" max="10000" step="0.1"
+          value={f.source_amount} onChange={ev => sf("source_amount", ev.target.value)} style={numStyle}/>
+      </td>
+      <td style={{ padding: "8px 6px" }}>
+        <select value={f.source_unit} onChange={ev => sf("source_unit", ev.target.value)} style={selStyle}>
+          {SWAP_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+        </select>
+      </td>
+      <td style={{ padding: "8px 10px", textAlign: "center", color: "var(--muted)", fontSize: 18 }}>⇄</td>
+      <td style={{ padding: "8px 10px" }}>
+        <input value={f.swap_name} maxLength={150}
+          onChange={ev => sf("swap_name", ev.target.value)}
+          placeholder="Equivalent food…" style={inputStyle}
+          onKeyDown={ev => ev.key === "Enter" && save()}/>
+      </td>
+      <td style={{ padding: "8px 6px" }}>
+        <input type="number" min="0" max="10000" step="0.1"
+          value={f.swap_amount} onChange={ev => sf("swap_amount", ev.target.value)} style={numStyle}/>
+      </td>
+      <td style={{ padding: "8px 6px" }}>
+        <select value={f.swap_unit} onChange={ev => sf("swap_unit", ev.target.value)} style={selStyle}>
+          {SWAP_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+        </select>
+      </td>
+      <td style={{ padding: "8px 8px", whiteSpace: "nowrap" }}>
+        <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+          <button className="btn btn-primary btn-sm btn-icon" onClick={save} disabled={saving} title="Add">
+            {saving ? <Spinner/> : <Icon name="check" size={13}/>}
+          </button>
+          <button className="btn btn-ghost btn-sm btn-icon" onClick={onCancel} title="Cancel">
+            <Icon name="x" size={13}/>
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+// ── Category Section ───────────────────────────────────────────────────────────
+function SwapSection({ cat, swaps, athleteId, onUpdate, onDelete, onAdd, toast }) {
+  const [addingRow, setAddingRow] = useState(false);
+
+  function handleSaved(updated) {
+    onUpdate(updated);
+  }
+
+  function handleAdded(created) {
+    onAdd(created);
+    setAddingRow(false);
   }
 
   return (
-    <div>
-      <div className="section-header">
-        <div style={{fontSize:13,color:"var(--text2)"}}>{foods.length} food{foods.length!==1?"s":""} in database</div>
-        <button className="btn btn-primary" onClick={()=>{setEditFood(null);setShowForm(true);}}><Icon name="plus" size={14}/>Add Food</button>
-      </div>
-
-      {/* Filters */}
-      <div style={{display:"flex",gap:10,marginBottom:20,flexWrap:"wrap"}}>
-        <div style={{flex:1,minWidth:180,position:"relative"}}>
-          <Icon name="search" size={14} color="var(--muted)" style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)"}}/>
-          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search foods…"
-            style={{width:"100%",background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:8,padding:"9px 12px 9px 32px",color:"var(--text)",fontFamily:"var(--font)",fontSize:13}}/>
-        </div>
-        <select value={filterCat} onChange={e=>setFilterCat(e.target.value)}
-          style={{background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:8,padding:"9px 12px",color:"var(--text)",fontFamily:"var(--font)",fontSize:13}}>
-          <option value="">All Categories</option>
-          {FOOD_CATS.map(c=><option key={c} value={c}>{c.charAt(0).toUpperCase()+c.slice(1)}</option>)}
-        </select>
-      </div>
-
-      {filtered.length===0&&<EmptyState icon="layers" title="No Foods Found" message="Add healthy food swaps to build your nutrition database."/>}
-
-      <div className="food-grid">
-        {filtered.map(f=>(
-          <div key={f.id} className="food-card">
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
-              <div>
-                <div className="food-name">{f.name}</div>
-                <span className="badge badge-accent" style={{fontSize:10}}>{f.category}</span>
-                <span style={{fontSize:11,color:"var(--muted)",marginLeft:6}}>{f.serving_size}</span>
-              </div>
-              <div style={{display:"flex",gap:4}}>
-                <button className="btn btn-ghost btn-sm btn-icon" onClick={()=>{setEditFood(f);setShowForm(true);}}><Icon name="edit" size={13}/></button>
-                <button className="btn btn-ghost btn-sm btn-icon" onClick={()=>deleteFood(f)}><Icon name="trash" size={13}/></button>
-              </div>
+    <div className="card" style={{ marginBottom: 20 }}>
+      {/* Section header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ width: 32, height: 32, borderRadius: 8, background: `${cat.color}22`,
+            display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Icon name={cat.icon} size={16} color={cat.color}/>
+          </span>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 15 }}>{cat.label}</div>
+            <div style={{ fontSize: 12, color: "var(--muted)" }}>
+              {swaps.length} swap{swaps.length !== 1 ? "s" : ""}
             </div>
-            <div className="food-macros">
-              <span className="food-macro-pill" style={{color:"var(--red)"}}>P: {f.protein}g</span>
-              <span className="food-macro-pill" style={{color:"var(--orange)"}}>C: {f.carbs}g</span>
-              <span className="food-macro-pill" style={{color:"var(--yellow)"}}>F: {f.fat}g</span>
-              <span className="food-macro-pill" style={{color:"var(--green)"}}><Icon name="flame" size={10}/> {f.calories} kcal</span>
-            </div>
-            {(f.fiber||f.sodium||f.potassium)>0&&(
-              <div className="food-macros" style={{marginTop:4}}>
-                {f.fiber>0&&<span className="food-macro-pill">Fiber: {f.fiber}g</span>}
-                {f.sodium>0&&<span className="food-macro-pill">Na: {f.sodium}mg</span>}
-                {f.potassium>0&&<span className="food-macro-pill">K: {f.potassium}mg</span>}
-              </div>
-            )}
           </div>
-        ))}
+        </div>
+        <button className="btn btn-secondary btn-sm" onClick={() => setAddingRow(true)} disabled={addingRow}>
+          <Icon name="plus" size={13}/>Add Swap
+        </button>
       </div>
 
-      {showForm && <FoodFormDialog food={editFood} athleteId={athleteId} onSave={()=>{loadFoods();setShowForm(false);setEditFood(null);}} onClose={()=>{setShowForm(false);setEditFood(null);}} toast={toast}/>}
-      {Confirmer}
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <thead>
+            <tr style={{ borderBottom: "2px solid var(--border)" }}>
+              <th style={thStyle}>Source Food</th>
+              <th style={{ ...thStyle, width: 80 }}>Amount</th>
+              <th style={{ ...thStyle, width: 72 }}>Unit</th>
+              <th style={{ ...thStyle, width: 36, textAlign: "center" }}></th>
+              <th style={thStyle}>Swap Food</th>
+              <th style={{ ...thStyle, width: 80 }}>Amount</th>
+              <th style={{ ...thStyle, width: 72 }}>Unit</th>
+              <th style={{ ...thStyle, width: 64 }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {swaps.map(s => (
+              <SwapRow
+                key={s.id}
+                swap={s}
+                athleteId={athleteId}
+                onSaved={handleSaved}
+                onDeleted={onDelete}
+                toast={toast}
+              />
+            ))}
+            {addingRow && (
+              <NewSwapRow
+                category={cat.key}
+                athleteId={athleteId}
+                onSaved={handleAdded}
+                onCancel={() => setAddingRow(false)}
+                toast={toast}
+              />
+            )}
+            {swaps.length === 0 && !addingRow && (
+              <tr>
+                <td colSpan={8} style={{ padding: "24px 10px", textAlign: "center", color: "var(--muted)", fontSize: 13 }}>
+                  No swaps yet — click <strong>Add Swap</strong> to get started.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
 
-function FoodFormDialog({ food, athleteId, onSave, onClose, toast }) {
-  const isNew = !food;
-  const MFIELDS = ["protein","carbs","fat","fiber","sodium","potassium","calories"];
-  const MLABELS = {protein:"Protein (g)",carbs:"Carbs (g)",fat:"Fat (g)",fiber:"Fiber (g)",sodium:"Sodium (mg)",potassium:"Potassium (mg)",calories:"Calories (kcal)"};
-  const [f, setF] = useState({ name:food?.name||"", serving_size:food?.serving_size||"100g", category:food?.category||"general",
-    protein:food?.protein||0, carbs:food?.carbs||0, fat:food?.fat||0, fiber:food?.fiber||0, sodium:food?.sodium||0, potassium:food?.potassium||0, calories:food?.calories||0 });
-  const [e, setE] = useState({});
-  const [saving, setSaving] = useState(false);
-  const sf = (k,v) => { setE(p=>({...p,[k]:null})); setF(p=>({...p,[k]:v})); };
+const thStyle = {
+  textAlign: "left",
+  padding: "6px 10px",
+  fontSize: 11,
+  fontWeight: 700,
+  color: "var(--muted)",
+  textTransform: "uppercase",
+  letterSpacing: 0.4,
+  whiteSpace: "nowrap",
+};
 
-  function validate_() {
-    const err={};
-    err.name=validate(f.name,[rules.required,rules.maxLen(100),rules.noScript]);
-    err.serving_size=validate(f.serving_size,[rules.required,rules.maxLen(50)]);
-    MFIELDS.forEach(k=>{err[k]=validate(f[k],[rules.numeric,rules.positiveNum]);});
-    setE(err);
-    return Object.values(err).every(v=>!v);
-  }
+// ── Food Swaps Tab ─────────────────────────────────────────────────────────────
+function FoodSwapsTab({ athleteId, toast }) {
+  const [swaps, setSwaps] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  async function save() {
-    if (!validate_()) return;
-    setSaving(true);
+  useEffect(() => { load(); }, [athleteId]);
+
+  async function load() {
+    setLoading(true);
     try {
-      const payload={...f,...Object.fromEntries(MFIELDS.map(k=>[k,+f[k]]))};
-      if (food) await apiPut(`/athletes/${athleteId}/foods/${food.id}`,payload);
-      else      await apiPost(`/athletes/${athleteId}/foods`,payload);
-      toast.show(food?"Food updated":"Food added","success");
-      onSave();
-    } catch(err){toast.show(err.message,"error");setSaving(false);}
+      const d = await apiGet(`/athletes/${athleteId}/food-swaps`);
+      setSwaps(d);
+    } catch(err) { toast.show(err.message, "error"); }
+    setLoading(false);
   }
+
+  function handleUpdate(updated) {
+    setSwaps(prev => prev.map(s => s.id === updated.id ? updated : s));
+  }
+
+  function handleDelete(id) {
+    setSwaps(prev => prev.filter(s => s.id !== id));
+  }
+
+  function handleAdd(created) {
+    setSwaps(prev => [...prev, created]);
+  }
+
+  if (loading) return (
+    <div style={{ display: "flex", justifyContent: "center", padding: 48 }}>
+      <Spinner/>
+    </div>
+  );
 
   return (
-    <div className="overlay" style={{zIndex:150}}>
-      <div className="dialog dialog-lg">
-        <div className="dialog-title"><Icon name="layers" size={20}/>{isNew?"Add Food Swap":"Edit Food Swap"}</div>
-        <div className="form-grid" style={{marginBottom:16}}>
-          <FF label="Food Name *" error={e.name}><input value={f.name} className={e.name?"err":""} maxLength={100} onChange={ev=>sf("name",ev.target.value)} placeholder="e.g. Brown Rice" autoFocus/></FF>
-          <FF label="Serving Size" error={e.serving_size}><input value={f.serving_size} className={e.serving_size?"err":""} maxLength={50} onChange={ev=>sf("serving_size",ev.target.value)} placeholder="100g, 1 cup"/></FF>
-          <FF label="Category"><select value={f.category} onChange={ev=>sf("category",ev.target.value)}>{FOOD_CATS.map(c=><option key={c} value={c}>{c.charAt(0).toUpperCase()+c.slice(1)}</option>)}</select></FF>
-          {MFIELDS.map(k=><FF key={k} label={MLABELS[k]} error={e[k]}><input type="number" min="0" step="0.1" value={f[k]} className={e[k]?"err":""} onChange={ev=>sf(k,ev.target.value)}/></FF>)}
+    <div>
+      <div className="section-header" style={{ marginBottom: 20 }}>
+        <div>
+          <div className="section-title">Food Swaps</div>
+          <div style={{ fontSize: 12, color: "var(--text2)", marginTop: 2 }}>
+            Interchangeable foods with equivalent portions — edit any row and save with the
+            <span style={{ display: "inline-flex", verticalAlign: "middle", margin: "0 4px" }}>
+              <Icon name="save" size={12} color="var(--accent)"/>
+            </span>
+            button.
+          </div>
         </div>
-        <div className="dialog-actions">
-          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" onClick={save} disabled={saving}>{saving?<Spinner/>:<Icon name="save" size={14}/>}{isNew?"Add Food":"Save Changes"}</button>
+        <div style={{ fontSize: 13, color: "var(--muted)", alignSelf: "center" }}>
+          {swaps.length} total swap{swaps.length !== 1 ? "s" : ""}
         </div>
       </div>
+
+      {SWAP_CATEGORIES.map(cat => (
+        <SwapSection
+          key={cat.key}
+          cat={cat}
+          swaps={swaps.filter(s => s.category === cat.key)}
+          athleteId={athleteId}
+          onUpdate={handleUpdate}
+          onDelete={handleDelete}
+          onAdd={handleAdd}
+          toast={toast}
+        />
+      ))}
     </div>
   );
 }

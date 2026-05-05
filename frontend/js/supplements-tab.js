@@ -2,13 +2,19 @@
 
 const WEEK_DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
 
-function SupplementDialog({ supplement, athleteId, defaultDay, onSave, onClose }) {
+const SUP_TIMES = [
+  { value:"AM",    label:"AM",    subLabel:"Morning supplements",     badgeClass:"sup-am"    },
+  { value:"Intra", label:"Intra", subLabel:"Intra-workout supplements",badgeClass:"sup-intra" },
+  { value:"PM",    label:"PM",    subLabel:"Evening supplements",     badgeClass:"sup-pm"    },
+];
+
+function SupplementDialog({ supplement, athleteId, defaultDay, defaultTime, onSave, onClose }) {
   const isNew = !supplement;
   const [f, setF] = useState({
     day_of_week: supplement?.day_of_week || defaultDay || "Monday",
-    name: supplement?.name || "",
-    dosage: supplement?.dosage || "",
-    time_of_day: supplement?.time_of_day || "AM",
+    name:        supplement?.name        || "",
+    dosage:      supplement?.dosage      || "",
+    time_of_day: supplement?.time_of_day || defaultTime || "AM",
   });
   const [e, setE] = useState({});
   const [saving, setSaving] = useState(false);
@@ -47,7 +53,11 @@ function SupplementDialog({ supplement, athleteId, defaultDay, onSave, onClose }
             </select>
           </FF>
           <FF label="Time">
-            <ToggleGroup options={[{value:"AM",label:"AM"},{value:"PM",label:"PM"}]} value={f.time_of_day} onChange={v=>sf("time_of_day",v)}/>
+            <ToggleGroup
+              options={SUP_TIMES.map(t=>({value:t.value,label:t.label}))}
+              value={f.time_of_day}
+              onChange={v=>sf("time_of_day",v)}
+            />
           </FF>
           <FF label="Supplement Name *" error={e.name} full>
             <input value={f.name} className={e.name?"err":""} maxLength={100} onChange={ev=>sf("name",ev.target.value)} placeholder="e.g. Creatine Monohydrate" autoFocus/>
@@ -72,6 +82,7 @@ function SupplementsTab({ athleteId, toast }) {
   const [activeDay, setActiveDay]     = useState("Monday");
   const [showForm, setShowForm]       = useState(false);
   const [editSup, setEditSup]         = useState(null);
+  const [defaultTime, setDefaultTime] = useState("AM");
   const { confirm, Confirmer }        = useConfirm();
 
   useEffect(() => { loadSupplements(); }, [athleteId]);
@@ -91,12 +102,47 @@ function SupplementsTab({ athleteId, toast }) {
     toast.show("Supplement removed", "success");
   }
 
-  const daySupplements = supplements.filter(s => s.day_of_week === activeDay);
-  const amSupplements  = daySupplements.filter(s => s.time_of_day === "AM").sort((a,b)=>a.sort_order-b.sort_order);
-  const pmSupplements  = daySupplements.filter(s => s.time_of_day === "PM").sort((a,b)=>a.sort_order-b.sort_order);
+  function openAdd(time) {
+    setDefaultTime(time);
+    setEditSup(null);
+    setShowForm(true);
+  }
+
+  const daySupplements    = supplements.filter(s => s.day_of_week === activeDay);
+  const byTime = t => daySupplements.filter(s => s.time_of_day === t).sort((a,b)=>a.sort_order-b.sort_order);
 
   // Summary counts per day for the tab headers
   const countByDay = WEEK_DAYS.reduce((acc,d)=>({...acc,[d]:supplements.filter(s=>s.day_of_week===d).length}),{});
+
+  function SupSection({ time }) {
+    const t    = SUP_TIMES.find(x=>x.value===time);
+    const sups = byTime(time);
+    return (
+      <div className="card card-sm" style={{marginBottom:12}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <span className={`sup-time-badge ${t.badgeClass}`} style={{fontSize:12,padding:"3px 12px"}}>{t.label}</span>
+            <span style={{fontSize:13,color:"var(--text2)"}}>{t.subLabel}</span>
+          </div>
+          <button className="btn btn-ghost btn-sm" onClick={()=>openAdd(time)}>
+            <Icon name="plus" size={12}/>Add
+          </button>
+        </div>
+        {sups.length===0&&<div style={{color:"var(--muted)",fontSize:13}}>No {t.label} supplements for {activeDay}.</div>}
+        {sups.map(sup=>(
+          <div key={sup.id} className="supplement-item">
+            <span className={`sup-time-badge ${t.badgeClass}`}>{t.label}</span>
+            <div style={{flex:1}}>
+              <div className="sup-name">{sup.name}</div>
+              {sup.dosage&&<div className="sup-dosage">{sup.dosage}</div>}
+            </div>
+            <button className="btn btn-ghost btn-sm btn-icon" onClick={()=>{setEditSup(sup);setShowForm(true);}}><Icon name="edit" size={13}/></button>
+            <button className="btn btn-ghost btn-sm btn-icon" onClick={()=>deleteSup(sup)}><Icon name="trash" size={13}/></button>
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -113,56 +159,21 @@ function SupplementsTab({ athleteId, toast }) {
       {/* Header */}
       <div className="section-header">
         <div className="section-title">{activeDay} Supplements</div>
-        <button className="btn btn-primary btn-sm" onClick={()=>{setEditSup(null);setShowForm(true);}}>
+        <button className="btn btn-primary btn-sm" onClick={()=>openAdd("AM")}>
           <Icon name="plus" size={13}/>Add Supplement
         </button>
       </div>
 
-      {/* AM Section */}
-      <div className="card card-sm" style={{marginBottom:12}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
-          <span className="sup-time-badge sup-am" style={{fontSize:12,padding:"3px 12px"}}>AM</span>
-          <span style={{fontSize:13,color:"var(--text2)"}}>Morning supplements</span>
-        </div>
-        {amSupplements.length===0&&<div style={{color:"var(--muted)",fontSize:13}}>No AM supplements for {activeDay}.</div>}
-        {amSupplements.map(sup=>(
-          <div key={sup.id} className="supplement-item">
-            <span className="sup-time-badge sup-am">AM</span>
-            <div style={{flex:1}}>
-              <div className="sup-name">{sup.name}</div>
-              {sup.dosage&&<div className="sup-dosage">{sup.dosage}</div>}
-            </div>
-            <button className="btn btn-ghost btn-sm btn-icon" onClick={()=>{setEditSup(sup);setShowForm(true);}}><Icon name="edit" size={13}/></button>
-            <button className="btn btn-ghost btn-sm btn-icon" onClick={()=>deleteSup(sup)}><Icon name="trash" size={13}/></button>
-          </div>
-        ))}
-      </div>
-
-      {/* PM Section */}
-      <div className="card card-sm">
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
-          <span className="sup-time-badge sup-pm" style={{fontSize:12,padding:"3px 12px"}}>PM</span>
-          <span style={{fontSize:13,color:"var(--text2)"}}>Evening supplements</span>
-        </div>
-        {pmSupplements.length===0&&<div style={{color:"var(--muted)",fontSize:13}}>No PM supplements for {activeDay}.</div>}
-        {pmSupplements.map(sup=>(
-          <div key={sup.id} className="supplement-item">
-            <span className="sup-time-badge sup-pm">PM</span>
-            <div style={{flex:1}}>
-              <div className="sup-name">{sup.name}</div>
-              {sup.dosage&&<div className="sup-dosage">{sup.dosage}</div>}
-            </div>
-            <button className="btn btn-ghost btn-sm btn-icon" onClick={()=>{setEditSup(sup);setShowForm(true);}}><Icon name="edit" size={13}/></button>
-            <button className="btn btn-ghost btn-sm btn-icon" onClick={()=>deleteSup(sup)}><Icon name="trash" size={13}/></button>
-          </div>
-        ))}
-      </div>
+      <SupSection time="AM"/>
+      <SupSection time="Intra"/>
+      <SupSection time="PM"/>
 
       {showForm && (
         <SupplementDialog
           supplement={editSup}
           athleteId={athleteId}
           defaultDay={activeDay}
+          defaultTime={defaultTime}
           onSave={loadSupplements}
           onClose={()=>{setShowForm(false);setEditSup(null);}}
         />
