@@ -158,8 +158,9 @@ function App() {
       </nav>
 
       {/* ── Content ── */}
-      {athleteId ? (
-        <main className="app-content" key={athleteId}>
+      {/* Admin tab is always accessible — it hosts backup/restore for empty installs */}
+      {(athleteId || tab === "admin") ? (
+        <main className="app-content" key={athleteId ?? "no-athlete"}>
           {tab === "athlete"      && <AthleteSettingsTab athleteId={athleteId} toast={toast} onAthleteUpdated={loadAthletes} />}
           {tab === "calendar"     && <CalendarTab        athleteId={athleteId} toast={toast} />}
           {tab === "mealplan"     && <MealPlanTab        athleteId={athleteId} toast={toast} units={units} />}
@@ -171,8 +172,13 @@ function App() {
       ) : (
         <main className="app-content">
           <EmptyState icon="user" title="No Athlete Selected"
-            message="Create your first athlete to get started."
-            action={<button className="btn btn-primary" onClick={() => setShowManage(true)}><Icon name="plus" size={14}/>Create Athlete</button>}
+            message="Create your first athlete to get started, or use the Admin tab to restore a backup."
+            action={
+              <div style={{display:"flex",gap:10,flexWrap:"wrap",justifyContent:"center"}}>
+                <button className="btn btn-primary" onClick={() => setShowManage(true)}><Icon name="plus" size={14}/>Create Athlete</button>
+                <button className="btn btn-secondary" onClick={() => setTab("admin")}><Icon name="refresh_ccw" size={14}/>Restore Backup</button>
+              </div>
+            }
           />
         </main>
       )}

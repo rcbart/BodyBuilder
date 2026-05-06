@@ -1,6 +1,6 @@
 # BodyBuilder — Installation Guide
 
-**Version 1.1.2 · macOS**
+**Version 1.1.3 · macOS**
 
 ---
 
@@ -102,6 +102,13 @@ Open Finder, click **Applications** in the left sidebar, and double-click **Body
 - The app is ready to use
 
 > The Terminal window can be **minimised** or left in the background — do not close it while using the app.
+
+### First launch — no athletes yet?
+
+That is normal. BodyBuilder opens on the **Athlete** tab. You have two options:
+
+- **Create a new athlete** — click the athlete switcher (top right) and choose **Manage Athletes**, then create your first athlete.
+- **Restore from a backup** — if you have a `.bb` backup file from a previous installation, click the **Admin** tab. The Backup & Restore panel will be shown automatically. Click **Restore from Backup**, select your `.bb` file, and the app will reload with all your previous data.
 
 ---
 

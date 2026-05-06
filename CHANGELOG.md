@@ -1,3 +1,44 @@
+## v1.1.3 — May 5, 2026
+
+### Backup & Restore
+
+**`backend/main.py`**
+- Added `import hashlib` and `Request` to FastAPI imports
+- Added `BACKUP_TABLES` constant — ordered list of all 15 application tables (parents before children)
+- Added `GET /api/backup` endpoint — serialises all table rows to JSON, computes SHA256 checksum of the data section, returns `{format, app_version, created_at, checksum, data}`
+- Added `POST /api/restore` endpoint — validates `format` field ("bodybuilder-backup"), recomputes and compares SHA256 checksum, clears all tables (FK constraints disabled during wipe), inserts rows back in schema order with column-whitelist guard against schema drift
+
+**`frontend/js/admin-tab.js`**
+- Added `BackupRestoreSection` component with:
+  - **Back Up Now** button — calls `GET /api/backup`, uses `showSaveFilePicker()` (Chrome/Edge) with auto-download fallback for Safari; filename format `bb-backup-YYYY-MM-DDTHH-MM-SS.bb`
+  - **Restore from Backup** button — hidden `<input type="file" accept=".bb">` triggered by a styled label; validates `.bb` extension, parses JSON, posts to `/api/restore`, reloads app on success
+  - Warning banner reminding users that restore replaces all current data
+  - Close (×) button in the card header — dismisses the panel in both the empty-state view and the normal admin view; dismissed panel is replaced by a small "Backup & Restore" button to reopen it
+- `AdminTab` now renders `BackupRestoreSection` at the top of the normal admin view (dismissible)
+- Added **empty-state screen**: when no athletes exist, the full tab is replaced with a centred empty-state message and `BackupRestoreSection` as the primary action, making it easy to restore into a fresh installation
+- Fixed `catch {}` optional-catch-binding syntax → `catch (_e)` for Babel Standalone compatibility; the bare `catch {}` was silently preventing the entire script from loading, causing the Admin tab to render blank
+- Fixed `AdminTab` rendering when `athleteId` is `null` — `loadMultipliers` effect is now guarded with `if (athleteId)` to prevent a spurious API call to `/athletes/null/activity-calories`
+
+**`frontend/js/app.js`**
+- Content area gate changed from `athleteId ? … : <EmptyState>` to `(athleteId || tab === "admin") ? … : <EmptyState>` so the Admin tab renders even when no athlete is selected
+- Generic empty state now includes a **Restore Backup** shortcut button that switches directly to the Admin tab
+- `key` prop on the content `<main>` uses `athleteId ?? "no-athlete"` so React correctly re-mounts when switching between the no-athlete and with-athlete states
+
+**`frontend/js/icons.js`**
+- Added `upload` and `alert-triangle` icons used by the backup/restore UI
+
+**`frontend/index.html`**
+- Cache-busting query strings bumped: `?v=6` → `?v=7` (backup feature), then `?v=8` (Babel fix), `?v=9` (close button), `?v=10` (final)
+
+**`installer/INSTALL_GUIDE.md`**
+- Bumped version header to 1.1.3
+- Added note in Step 4 (Launch) about using the Admin tab to restore a backup on a fresh installation
+
+**`VERSION`**
+- Bumped `1.1.2` → `1.1.3`
+
+---
+
 ## v1.1.2 — May 5, 2026
 
 ### Repository & Documentation

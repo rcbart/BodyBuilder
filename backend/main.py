@@ -2,12 +2,13 @@
 BodyBuilder API — FastAPI + SQLite backend
 Multi-athlete support, workout plans, meal plans, calendar, xlsx export, email
 """
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, field_validator
 from typing import Optional, List
+import hashlib
 import sqlite3
 import json
 import io
@@ -2251,6 +2252,128 @@ def start_image_seed(force: bool = False):
 def get_seed_status():
     """Current state of the image-seeding background job."""
     return _seed_state
+
+
+# ─── Backup / Restore ─────────────────────────────────────────────────────────
+
+# Tables included in backup, in insertion order (parents before children)
+BACKUP_TABLES = [
+    "athletes",
+    "programs",
+    "activity_calories",
+    "calendar_days",
+    "calendar_events",
+    "meal_plans",
+    "nutrition_foods",
+    "food_swaps",
+    "meals",
+    "meal_items",
+    "workout_plans",
+    "workout_sessions",
+    "workout_exercises",
+    "supplements",
+    "smtp_settings",
+]
+
+
+@app.get("/api/backup")
+def create_backup():
+    """Return a full backup of all application data as JSON."""
+    conn = get_db()
+    data: dict = {}
+    try:
+        for table in BACKUP_TABLES:
+            rows = conn.execute(f"SELECT * FROM {table}").fetchall()
+            data[table] = [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+    data_json = json.dumps(data, sort_keys=True, default=str)
+    checksum = hashlib.sha256(data_json.encode()).hexdigest()
+
+    return {
+        "format": "bodybuilder-backup",
+        "app_version": ".".join(str(x) for x in APP_VERSION),
+        "created_at": datetime.now().isoformat(),
+        "checksum": checksum,
+        "data": data,
+    }
+
+
+@app.post("/api/restore")
+async def restore_backup(request: Request):
+    """Replace all application data from a .bb backup file."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "Invalid file — could not parse JSON")
+
+    if body.get("format") != "bodybuilder-backup":
+        raise HTTPException(
+            422,
+            "Incompatible file type — this is not a BodyBuilder backup file"
+        )
+
+    data = body.get("data")
+    if not isinstance(data, dict):
+        raise HTTPException(400, "Backup file is missing data section")
+
+    # Verify checksum
+    data_json = json.dumps(data, sort_keys=True, default=str)
+    computed = hashlib.sha256(data_json.encode()).hexdigest()
+    if computed != body.get("checksum"):
+        raise HTTPException(
+            400,
+            "Backup file is corrupt — checksum does not match. The file may have been modified or damaged."
+        )
+
+    conn = get_db()
+    try:
+        conn.execute("PRAGMA foreign_keys = OFF")
+        # Delete child tables first to avoid FK violations during clear
+        for table in reversed(BACKUP_TABLES):
+            conn.execute(f"DELETE FROM {table}")
+        # Reset auto-increment counters where they exist
+        try:
+            conn.execute("DELETE FROM sqlite_sequence WHERE name IN ({})".format(
+                ",".join(f"'{t}'" for t in BACKUP_TABLES)
+            ))
+        except Exception:
+            pass  # sqlite_sequence may not exist if no AUTOINCREMENT tables yet
+
+        # Insert rows for each table
+        for table in BACKUP_TABLES:
+            rows = data.get(table, [])
+            if not rows:
+                continue
+            # Determine valid columns from schema to guard against schema drift
+            valid_cols = {
+                r["name"]
+                for r in conn.execute(f"PRAGMA table_info({table})").fetchall()
+            }
+            for row in rows:
+                safe_row = {k: v for k, v in row.items() if k in valid_cols}
+                if not safe_row:
+                    continue
+                cols = ", ".join(safe_row.keys())
+                placeholders = ", ".join(["?"] * len(safe_row))
+                conn.execute(
+                    f"INSERT OR REPLACE INTO {table} ({cols}) VALUES ({placeholders})",
+                    list(safe_row.values()),
+                )
+
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.commit()
+    except Exception as exc:
+        conn.rollback()
+        conn.close()
+        raise HTTPException(500, f"Restore failed: {exc}")
+
+    conn.close()
+    return {
+        "restored": True,
+        "athletes_count": len(data.get("athletes", [])),
+    }
 
 
 # ─── Frontend ─────────────────────────────────────────────────────────────────

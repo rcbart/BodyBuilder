@@ -1,5 +1,141 @@
 // ─── Admin Tab ────────────────────────────────────────────────────────────────
 
+// ── Backup / Restore ──────────────────────────────────────────────────────────
+function BackupRestoreSection({ toast, onClose }) {
+  const [backing, setBacking]   = useState(false);
+  const [restoring, setRestoring] = useState(false);
+
+  // Build a filename like bb-backup-2026-05-03T14-22-05.bb
+  function buildFilename() {
+    const now = new Date();
+    const pad = n => String(n).padStart(2, "0");
+    const ts = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}` +
+               `T${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+    return `bb-backup-${ts}.bb`;
+  }
+
+  async function handleBackup() {
+    setBacking(true);
+    try {
+      const payload = await apiGet("/backup");
+      const json = JSON.stringify(payload, null, 2);
+      const blob = new Blob([json], { type: "application/json" });
+      const filename = buildFilename();
+
+      // Use modern File System Access API (Chrome/Edge) with fallback for Safari
+      if (window.showSaveFilePicker) {
+        try {
+          const handle = await window.showSaveFilePicker({
+            suggestedName: filename,
+            types: [{
+              description: "BodyBuilder Backup",
+              accept: { "application/json": [".bb"] },
+            }],
+          });
+          const writable = await handle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          toast.show("Backup saved successfully", "success");
+        } catch (err) {
+          if (err.name !== "AbortError") throw err;
+          // User cancelled — not an error
+        }
+      } else {
+        // Fallback: trigger standard browser download
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast.show("Backup downloaded", "success");
+      }
+    } catch (err) {
+      toast.show("Backup failed: " + err.message, "error");
+    }
+    setBacking(false);
+  }
+
+  async function handleRestore(e) {
+    const file = e.target.files?.[0];
+    e.target.value = "";   // reset so the same file can be picked again
+    if (!file) return;
+
+    if (!file.name.endsWith(".bb")) {
+      toast.show("Incompatible file type — please select a .bb backup file", "error");
+      return;
+    }
+
+    setRestoring(true);
+    try {
+      const text = await file.text();
+      let payload;
+      try {
+        payload = JSON.parse(text);
+      } catch (_e) {
+        throw new Error("Invalid file — could not parse backup");
+      }
+
+      const result = await apiPost("/restore", payload);
+      toast.show(
+        `Restore complete — ${result.athletes_count} athlete${result.athletes_count === 1 ? "" : "s"} loaded`,
+        "success"
+      );
+      // Reload the full app so all tabs reflect the restored data
+      setTimeout(() => window.location.reload(), 1200);
+    } catch (err) {
+      toast.show(err.message, "error");
+    }
+    setRestoring(false);
+  }
+
+  return (
+    <div className="card" style={{marginBottom: 24, border: "2px solid var(--accent)", boxShadow: "0 0 0 4px var(--accent-dim)"}}>
+      <div className="card-header">
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <Icon name="refresh_ccw" size={18} color="var(--accent)"/>
+          <div className="card-title">Backup &amp; Restore</div>
+        </div>
+        {onClose && (
+          <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",padding:4,color:"var(--muted)",display:"flex",alignItems:"center"}} title="Dismiss">
+            <Icon name="x" size={16}/>
+          </button>
+        )}
+      </div>
+      <p style={{fontSize:13,color:"var(--text2)",marginBottom:20}}>
+        Save a complete backup of all athletes, workouts, meals, and settings to a <code style={{background:"var(--surface2)",padding:"1px 5px",borderRadius:4,fontSize:12}}>.bb</code> file, or restore a previous backup. Backups include a checksum to detect file corruption.
+      </p>
+      <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+        {/* Backup button */}
+        <button className="btn btn-primary" onClick={handleBackup} disabled={backing || restoring} style={{minWidth:150}}>
+          {backing ? <Spinner/> : <Icon name="download" size={14}/>}
+          {backing ? "Creating backup…" : "Back Up Now"}
+        </button>
+
+        {/* Restore — hidden file input triggered by visible button */}
+        <label style={{display:"inline-flex",alignItems:"center",gap:6,cursor: (restoring||backing)?"not-allowed":"pointer"}}>
+          <input
+            type="file"
+            accept=".bb"
+            style={{display:"none"}}
+            disabled={restoring || backing}
+            onChange={handleRestore}
+          />
+          <span className={`btn btn-secondary${restoring||backing?" disabled":""}`} style={{minWidth:150,pointerEvents:"none"}}>
+            {restoring ? <Spinner/> : <Icon name="upload" size={14}/>}
+            {restoring ? "Restoring…" : "Restore from Backup"}
+          </span>
+        </label>
+      </div>
+
+      <div style={{marginTop:16,padding:"10px 14px",background:"var(--surface2)",borderRadius:8,fontSize:12,color:"var(--muted)",display:"flex",gap:8,alignItems:"flex-start"}}>
+        <Icon name="alert-triangle" size={14} color="var(--orange)" style={{flexShrink:0,marginTop:1}}/>
+        <span><strong style={{color:"var(--orange)"}}>Restore replaces all current data.</strong> Back up first if you have any data you want to keep.</span>
+      </div>
+    </div>
+  );
+}
+
 // Standard Harris-Benedict TDEE multipliers
 const STANDARD_MULTIPLIERS = [
   { level: 1, label: "Sedentary",          desc: "Little or no exercise",           value: 1.200 },
@@ -31,8 +167,11 @@ function AdminTab({ athleteId, toast, athletes }) {
   // ── Export state ──
   const [exporting, setExporting] = useState(false);
 
+  // ── Backup panel visibility (dismissible when athletes exist) ──
+  const [showBackup, setShowBackup] = useState(true);
+
   useEffect(() => { loadSmtp(); }, []);
-  useEffect(() => { loadMultipliers(); }, [athleteId]);
+  useEffect(() => { if (athleteId) loadMultipliers(); }, [athleteId]);
 
   // Pre-populate recipient email from current athlete
   useEffect(() => {
@@ -163,8 +302,39 @@ function AdminTab({ athleteId, toast, athletes }) {
   const sfSmtp = (k, v) => { setSmtpErrors(p => ({...p, [k]: null})); setSmtp(p => ({...p, [k]: v})); };
   const currentAthlete = athletes?.find(a => a.id === athleteId);
 
+  // ── Empty-state: no athletes yet ──
+  if (!athletes || athletes.length === 0) {
+    return (
+      <div>
+        <div style={{textAlign:"center",padding:"40px 0 24px",color:"var(--muted)"}}>
+          <Icon name="user" size={48} color="var(--border2)"/>
+          <div style={{fontSize:18,fontWeight:700,color:"var(--text)",marginTop:12}}>No athletes yet</div>
+          <div style={{fontSize:13,marginTop:6}}>Add an athlete to get started, or restore from a backup file below.</div>
+        </div>
+        {showBackup
+          ? <BackupRestoreSection toast={toast} onClose={() => setShowBackup(false)}/>
+          : <div style={{textAlign:"center"}}>
+              <button className="btn btn-secondary" onClick={() => setShowBackup(true)}>
+                <Icon name="refresh_ccw" size={13}/>Backup &amp; Restore
+              </button>
+            </div>
+        }
+      </div>
+    );
+  }
+
   return (
     <div>
+
+      {/* ── Backup & Restore ── */}
+      {showBackup
+        ? <BackupRestoreSection toast={toast} onClose={() => setShowBackup(false)}/>
+        : <div style={{marginBottom:24,textAlign:"right"}}>
+            <button className="btn btn-secondary btn-sm" onClick={() => setShowBackup(true)}>
+              <Icon name="refresh_ccw" size={13}/>Backup &amp; Restore
+            </button>
+          </div>
+      }
 
       {/* ── TDEE Multipliers ── */}
       <div className="card" style={{marginBottom:24}}>
