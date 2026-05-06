@@ -2311,6 +2311,32 @@ BACKUP_TABLES = [
 ]
 
 
+def _js_normalise(obj):
+    """
+    Recursively normalise a Python object to match JavaScript's JSON type coercion.
+
+    JavaScript has no separate int/float type: JSON.parse turns 175.0 into 175,
+    and JSON.stringify writes it back as 175.  This means a Python float like
+    175.0 serialised as '175.0' by json.dumps becomes '175' after a JS round-
+    trip, breaking SHA-256 equality.  Normalising before hashing on both sides
+    makes the checksum stable across that round-trip.
+    """
+    if isinstance(obj, dict):
+        return {k: _js_normalise(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_js_normalise(v) for v in obj]
+    if isinstance(obj, float) and obj == int(obj) and not (obj != obj):  # not NaN
+        return int(obj)
+    return obj
+
+
+def _checksum(data: dict) -> str:
+    """Canonical SHA-256 checksum of backup data, stable across JS round-trips."""
+    normalised = _js_normalise(data)
+    canonical  = json.dumps(normalised, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
 @app.get("/api/backup")
 def create_backup():
     """Return a full backup of all application data as JSON."""
@@ -2323,8 +2349,7 @@ def create_backup():
     finally:
         conn.close()
 
-    data_json = json.dumps(data, sort_keys=True, default=str)
-    checksum = hashlib.sha256(data_json.encode()).hexdigest()
+    checksum = _checksum(data)
 
     return {
         "format": "bodybuilder-backup",
@@ -2354,8 +2379,7 @@ async def restore_backup(request: Request):
         raise HTTPException(400, "Backup file is missing data section")
 
     # Verify checksum
-    data_json = json.dumps(data, sort_keys=True, default=str)
-    computed = hashlib.sha256(data_json.encode()).hexdigest()
+    computed = _checksum(data)
     if computed != body.get("checksum"):
         raise HTTPException(
             400,
