@@ -417,6 +417,7 @@ function AthleteFormDialog({ athlete, onSave, onClose }) {
     birthdate: athlete?.birthdate || "", sex: athlete?.sex || "male",
     height_cm: athlete?.height_cm || 175, weight_kg: athlete?.weight_kg || 75,
     phase: athlete?.phase || "maintain",
+    status: athlete?.status || "active",
   });
   const [e, setE] = useState({});
   const [saving, setSaving] = useState(false);
@@ -457,6 +458,23 @@ function AthleteFormDialog({ athlete, onSave, onClose }) {
               options={["cut","bulk","maintain","prep"].map(v=>({value:v,label:v.charAt(0).toUpperCase()+v.slice(1)}))}
               value={f.phase} onChange={v=>sf("phase",v)}/>
           </FF>
+          {!isNew && (
+            <FF label="Status" full>
+              <ToggleGroup
+                options={[
+                  {value:"active",   label:"Active"},
+                  {value:"inactive", label:"Inactive"},
+                ]}
+                value={f.status}
+                onChange={v => sf("status", v)}
+              />
+              {f.status === "inactive" && (
+                <div style={{fontSize:12,color:"var(--muted)",marginTop:6}}>
+                  Inactive athletes remain in the database but are visually marked as inactive.
+                </div>
+              )}
+            </FF>
+          )}
         </div>
         <div className="dialog-actions">
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>

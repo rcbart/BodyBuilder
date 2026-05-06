@@ -136,6 +136,145 @@ function BackupRestoreSection({ toast, onClose }) {
   );
 }
 
+// ── Manage Athletes Section ───────────────────────────────────────────────────
+function ManageAthletesSection({ athletes, currentId, onSwitch, onRefresh, toast }) {
+  const [showForm, setShowForm]   = useState(false);
+  const [editAth, setEditAth]     = useState(null);
+  const { confirm, Confirmer }    = useConfirm();
+
+  function initials(name) {
+    return (name || "?").split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
+  }
+
+  async function handleSave(body) {
+    try {
+      if (editAth) await apiPut(`/athletes/${editAth.id}`, body);
+      else         await apiPost("/athletes", body);
+      onRefresh();
+      toast.show(editAth ? "Athlete updated" : "Athlete created", "success");
+      setShowForm(false);
+      setEditAth(null);
+    } catch (err) { toast.show(err.message, "error"); throw err; }
+  }
+
+  async function handleDelete(ath) {
+    const ok = await confirm(
+      `Delete "${ath.name}"?`,
+      `This will permanently delete ${ath.name} and ALL of their data — workouts, meal plans, calendar, supplements, food entries, and settings. This cannot be undone.`
+    );
+    if (!ok) return;
+    try {
+      await apiDel(`/athletes/${ath.id}`);
+      // If we just deleted the active athlete, switch to the next available one
+      if (ath.id === currentId) {
+        const remaining = athletes.filter(a => a.id !== ath.id);
+        onSwitch(remaining.length > 0 ? remaining[0].id : null);
+      }
+      onRefresh();
+      toast.show(`${ath.name} deleted`, "success");
+    } catch (err) { toast.show(err.message, "error"); }
+  }
+
+  return (
+    <div className="card" style={{marginBottom:24}}>
+      <div className="card-header">
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <Icon name="users" size={18} color="var(--accent)"/>
+          <div className="card-title">Manage Athletes</div>
+          <span style={{fontSize:12,color:"var(--muted)",fontWeight:400,marginLeft:4}}>
+            {athletes.length} athlete{athletes.length !== 1 ? "s" : ""}
+          </span>
+        </div>
+        <button className="btn btn-primary btn-sm" onClick={() => { setEditAth(null); setShowForm(true); }}>
+          <Icon name="plus" size={13}/>New Athlete
+        </button>
+      </div>
+
+      {athletes.length === 0 ? (
+        <div style={{textAlign:"center",padding:"24px 0",color:"var(--muted)",fontSize:13}}>
+          No athletes yet — create one to get started.
+        </div>
+      ) : (
+        <div style={{maxHeight:340,overflowY:"auto",marginTop:4,paddingRight:2}}>
+          {athletes.map(ath => (
+            <div key={ath.id} style={{
+              display:"flex",alignItems:"center",gap:12,
+              padding:"10px 12px",borderRadius:9,marginBottom:6,
+              background:"var(--surface2)",
+              border:`1px solid ${ath.id === currentId ? "var(--accent)" : "var(--border2)"}`,
+            }}>
+              {/* Avatar */}
+              <div style={{
+                width:36,height:36,borderRadius:"50%",flexShrink:0,
+                background:"linear-gradient(135deg,var(--accent),var(--accent2))",
+                display:"flex",alignItems:"center",justifyContent:"center",
+                fontWeight:700,fontSize:13,color:"#fff",
+              }}>
+                {initials(ath.name)}
+              </div>
+
+              {/* Info */}
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontWeight:700,fontSize:14,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                  <span style={{color: ath.status === "inactive" ? "var(--muted)" : "inherit"}}>
+                    {ath.name || "Unnamed"}
+                  </span>
+                  {ath.id === currentId && (
+                    <span style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:.5,
+                      background:"var(--accent-dim)",color:"var(--accent)",borderRadius:4,padding:"1px 6px"}}>
+                      Selected
+                    </span>
+                  )}
+                  {ath.status === "inactive" && (
+                    <span style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:.5,
+                      background:"var(--surface3,var(--surface2))",color:"var(--muted)",borderRadius:4,padding:"1px 6px",
+                      border:"1px solid var(--border2)"}}>
+                      Inactive
+                    </span>
+                  )}
+                </div>
+                <div style={{fontSize:12,color:"var(--text2)",marginTop:1}}>
+                  {ath.email || <span style={{color:"var(--muted)"}}>No email</span>}
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div style={{display:"flex",gap:5,flexShrink:0}}>
+                {ath.id !== currentId && (
+                  <button className="btn btn-secondary btn-sm" onClick={() => onSwitch(ath.id)}
+                    title="Switch to this athlete">
+                    Select
+                  </button>
+                )}
+                <button className="btn btn-ghost btn-sm btn-icon"
+                  onClick={() => { setEditAth(ath); setShowForm(true); }}
+                  title="Edit athlete">
+                  <Icon name="edit" size={14}/>
+                </button>
+                <button className="btn btn-ghost btn-sm btn-icon"
+                  onClick={() => handleDelete(ath)}
+                  title="Delete athlete"
+                  style={{color:"var(--red)"}}>
+                  <Icon name="trash" size={14}/>
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showForm && (
+        <AthleteFormDialog
+          athlete={editAth}
+          onSave={handleSave}
+          onClose={() => { setShowForm(false); setEditAth(null); }}
+        />
+      )}
+      {Confirmer}
+    </div>
+  );
+}
+
 // Standard Harris-Benedict TDEE multipliers
 const STANDARD_MULTIPLIERS = [
   { level: 1, label: "Sedentary",          desc: "Little or no exercise",           value: 1.200 },
@@ -145,7 +284,7 @@ const STANDARD_MULTIPLIERS = [
   { level: 5, label: "Extra Active",       desc: "Very hard exercise / physical job",value: 1.900 },
 ];
 
-function AdminTab({ athleteId, toast, athletes }) {
+function AdminTab({ athleteId, toast, athletes, onRefresh, onSwitch }) {
   // ── SMTP state ──
   const [smtp, setSmtp]         = useState({ host:"", port:587, username:"", password:"", use_tls:true });
   const [smtpSaved, setSmtpSaved] = useState(false);
@@ -306,11 +445,13 @@ function AdminTab({ athleteId, toast, athletes }) {
   if (!athletes || athletes.length === 0) {
     return (
       <div>
-        <div style={{textAlign:"center",padding:"40px 0 24px",color:"var(--muted)"}}>
-          <Icon name="user" size={48} color="var(--border2)"/>
-          <div style={{fontSize:18,fontWeight:700,color:"var(--text)",marginTop:12}}>No athletes yet</div>
-          <div style={{fontSize:13,marginTop:6}}>Add an athlete to get started, or restore from a backup file below.</div>
-        </div>
+        <ManageAthletesSection
+          athletes={[]}
+          currentId={athleteId}
+          onSwitch={onSwitch}
+          onRefresh={onRefresh}
+          toast={toast}
+        />
         {showBackup
           ? <BackupRestoreSection toast={toast} onClose={() => setShowBackup(false)}/>
           : <div style={{textAlign:"center"}}>
@@ -325,6 +466,15 @@ function AdminTab({ athleteId, toast, athletes }) {
 
   return (
     <div>
+
+      {/* ── Manage Athletes ── */}
+      <ManageAthletesSection
+        athletes={athletes}
+        currentId={athleteId}
+        onSwitch={onSwitch}
+        onRefresh={onRefresh}
+        toast={toast}
+      />
 
       {/* ── Backup & Restore ── */}
       {showBackup

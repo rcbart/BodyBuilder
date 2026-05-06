@@ -167,7 +167,7 @@ function App() {
           {tab === "foodswaps"    && <FoodSwapsTab       athleteId={athleteId} toast={toast} />}
           {tab === "supplements"  && <SupplementsTab     athleteId={athleteId} toast={toast} />}
           {tab === "workout"      && <WorkoutPlanTab     athleteId={athleteId} toast={toast} units={units} />}
-          {tab === "admin"        && <AdminTab           athleteId={athleteId} toast={toast} athletes={athletes} />}
+          {tab === "admin"        && <AdminTab           athleteId={athleteId} toast={toast} athletes={athletes} onRefresh={loadAthletes} onSwitch={id => { setAthleteId(id); if (id) setTab("athlete"); }} />}
         </main>
       ) : (
         <main className="app-content">

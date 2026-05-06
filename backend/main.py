@@ -285,7 +285,8 @@ def init_db():
         workout_time TEXT DEFAULT 'AM',
         phase TEXT DEFAULT 'maintain',
         deficit REAL DEFAULT 0,
-        units TEXT DEFAULT 'metric'
+        units TEXT DEFAULT 'metric',
+        status TEXT DEFAULT 'active'
     )""")
 
     # ── Migrate old single-athlete table if present ──
@@ -454,6 +455,8 @@ def init_db():
     # Migrate athletes: add units column
     if not _col_exists(conn, "athletes", "units"):
         c.execute("ALTER TABLE athletes ADD COLUMN units TEXT DEFAULT 'metric'")
+    if not _col_exists(conn, "athletes", "status"):
+        c.execute("ALTER TABLE athletes ADD COLUMN status TEXT DEFAULT 'active'")
 
     # ── supplements ──
     c.execute("""CREATE TABLE IF NOT EXISTS supplements (
@@ -597,6 +600,13 @@ class AthleteModel(BaseModel):
     phase: Optional[str] = "maintain"
     deficit: Optional[float] = 0
     units: Optional[str] = "metric"
+    status: Optional[str] = "active"
+
+    @field_validator("status")
+    @classmethod
+    def status_v(cls, v):
+        if v not in ("active", "inactive"): raise ValueError("active or inactive")
+        return v
 
     @field_validator("name")
     @classmethod
@@ -1254,10 +1264,10 @@ def update_athlete(athlete_id: int, body: AthleteModel):
         conn.close(); raise HTTPException(404)
     conn.execute("""UPDATE athletes SET name=?,email=?,birthdate=?,height_cm=?,weight_kg=?,
         body_fat_pct=?,sex=?,activity_level=?,workout_days_per_week=?,workout_days=?,
-        workout_time=?,phase=?,deficit=?,units=? WHERE id=?""",
+        workout_time=?,phase=?,deficit=?,units=?,status=? WHERE id=?""",
         (body.name,body.email,body.birthdate,body.height_cm,body.weight_kg,body.body_fat_pct,
          body.sex,body.activity_level,body.workout_days_per_week,json.dumps(body.workout_days),
-         body.workout_time,body.phase,body.deficit,body.units,athlete_id))
+         body.workout_time,body.phase,body.deficit,body.units,body.status,athlete_id))
     conn.commit(); conn.close()
     return get_athlete(athlete_id)
 
