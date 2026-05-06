@@ -1,5 +1,18 @@
 // ─── Admin Tab ────────────────────────────────────────────────────────────────
 
+// ── Checksum helpers (client-side, avoids Python float serialisation mismatch) ──
+// Produces the same canonical JSON as Python's json.dumps(sort_keys=True, separators=(',',':'))
+function canonicalJSON(obj) {
+  if (obj === null || typeof obj !== "object") return JSON.stringify(obj);
+  if (Array.isArray(obj)) return "[" + obj.map(canonicalJSON).join(",") + "]";
+  return "{" + Object.keys(obj).sort().map(k => JSON.stringify(k) + ":" + canonicalJSON(obj[k])).join(",") + "}";
+}
+
+async function sha256hex(str) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
 // ── Backup / Restore ──────────────────────────────────────────────────────────
 function BackupRestoreSection({ toast, onClose }) {
   const [backing, setBacking]   = useState(false);
@@ -18,6 +31,9 @@ function BackupRestoreSection({ toast, onClose }) {
     setBacking(true);
     try {
       const payload = await apiGet("/backup");
+      // Re-compute checksum client-side from the JS representation of data.
+      // This avoids Python float serialisation differences (e.g. 175.0 vs 175).
+      payload.checksum = await sha256hex(canonicalJSON(payload.data));
       const json = JSON.stringify(payload, null, 2);
       const blob = new Blob([json], { type: "application/json" });
       const filename = buildFilename();
@@ -74,6 +90,14 @@ function BackupRestoreSection({ toast, onClose }) {
         payload = JSON.parse(text);
       } catch (_e) {
         throw new Error("Invalid file — could not parse backup");
+      }
+
+      // Verify checksum client-side before sending to server
+      if (payload.checksum && payload.data) {
+        const computed = await sha256hex(canonicalJSON(payload.data));
+        if (computed !== payload.checksum) {
+          throw new Error("Backup file is corrupt — checksum does not match. The file may have been modified or damaged.");
+        }
       }
 
       const result = await apiPost("/restore", payload);

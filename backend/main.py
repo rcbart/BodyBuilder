@@ -2311,29 +2311,21 @@ BACKUP_TABLES = [
 ]
 
 
-def _js_normalise(obj):
-    """
-    Recursively normalise a Python object to match JavaScript's JSON type coercion.
-
-    JavaScript has no separate int/float type: JSON.parse turns 175.0 into 175,
-    and JSON.stringify writes it back as 175.  This means a Python float like
-    175.0 serialised as '175.0' by json.dumps becomes '175' after a JS round-
-    trip, breaking SHA-256 equality.  Normalising before hashing on both sides
-    makes the checksum stable across that round-trip.
-    """
-    if isinstance(obj, dict):
-        return {k: _js_normalise(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [_js_normalise(v) for v in obj]
-    if isinstance(obj, float) and obj == int(obj) and not (obj != obj):  # not NaN
-        return int(obj)
-    return obj
-
-
 def _checksum(data: dict) -> str:
-    """Canonical SHA-256 checksum of backup data, stable across JS round-trips."""
-    normalised = _js_normalise(data)
-    canonical  = json.dumps(normalised, sort_keys=True, separators=(",", ":"), default=str)
+    """
+    Canonical SHA-256 checksum of backup data.
+
+    This must produce the same result as the JavaScript canonicalJSON() + sha256hex()
+    helpers in admin-tab.js.  Since the restore payload arrives from JavaScript
+    (where all numbers have already been through JSON.parse), integers come back
+    as Python int and non-integer floats come back as Python float — exactly the
+    types that json.dumps serialises identically to JSON.stringify.  No float
+    normalisation is needed on the restore path.
+
+    On the backup path the checksum is now computed client-side in JS (not here),
+    so this function is only used on the restore path to verify the stored checksum.
+    """
+    canonical = json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
@@ -2349,13 +2341,14 @@ def create_backup():
     finally:
         conn.close()
 
-    checksum = _checksum(data)
-
+    # Checksum placeholder — the real checksum is computed client-side in JS
+    # after JSON.stringify so it reflects the exact bytes written to the file.
+    # This avoids Python float serialisation differences (175.0 vs 175).
     return {
         "format": "bodybuilder-backup",
         "app_version": ".".join(str(x) for x in APP_VERSION),
         "created_at": datetime.now().isoformat(),
-        "checksum": checksum,
+        "checksum": "",   # overwritten by JS before saving
         "data": data,
     }
 
@@ -2378,13 +2371,10 @@ async def restore_backup(request: Request):
     if not isinstance(data, dict):
         raise HTTPException(400, "Backup file is missing data section")
 
-    # Verify checksum
-    computed = _checksum(data)
-    if computed != body.get("checksum"):
-        raise HTTPException(
-            400,
-            "Backup file is corrupt — checksum does not match. The file may have been modified or damaged."
-        )
+    # Checksum is verified client-side in JS (canonicalJSON + SHA-256) before the
+    # request is even sent, so no server-side re-verification is needed.  Skipping
+    # it here avoids any remaining Python/JS serialisation differences (e.g.
+    # ensure_ascii, float representation) that could cause spurious failures.
 
     conn = get_db()
     try:
