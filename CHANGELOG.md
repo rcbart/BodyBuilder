@@ -1,3 +1,26 @@
+## v1.1.4 — May 6, 2026
+
+### Backup & Restore — Checksum fix
+
+**`backend/main.py`**
+- Removed server-side SHA-256 re-verification on `POST /api/restore`. The checksum is now verified entirely client-side in JavaScript before the request is sent, eliminating all Python/JS serialisation differences as a source of false failures.
+- Updated `_checksum()` helper to use `ensure_ascii=False` so non-ASCII characters (accented names, special characters) are not escaped differently between Python and JavaScript.
+- `GET /api/backup` now returns `"checksum": ""` as a placeholder; the real checksum is written by the browser before saving the file.
+
+**`frontend/js/admin-tab.js`**
+- Added `canonicalJSON()` — recursively serialises an object with alphabetically sorted keys and no extra whitespace, matching Python's `json.dumps(sort_keys=True, separators=(',',':'))`.
+- Added `sha256hex()` — computes a SHA-256 hex digest using the browser's built-in Web Crypto API (`crypto.subtle`).
+- `handleBackup`: after receiving data from the server, re-computes the checksum client-side from the JavaScript representation of the data and overwrites the server placeholder before writing the file. This means the stored checksum always matches what the browser actually wrote, regardless of Python float serialisation quirks.
+- `handleRestore`: verifies the checksum client-side immediately after reading the file and before sending anything to the server. Files created before v1.1.4 (with an empty checksum field) are accepted without verification so that existing backups remain fully restorable.
+
+**`frontend/index.html`**
+- Cache-busting query strings bumped to `?v=15`.
+
+**`VERSION`**
+- Bumped `1.1.3` → `1.1.4`
+
+---
+
 ## v1.1.3 — May 5, 2026
 
 ### Backup & Restore
