@@ -162,6 +162,11 @@ def _wger_image_url(base_id: int):
 
 
 def _download_image(img_url: str, save_path: Path) -> bool:
+    # SSRF guard: only fetch from the expected wger.de domain over HTTPS
+    from urllib.parse import urlparse as _urlparse
+    _p = _urlparse(img_url)
+    if _p.scheme != "https" or not (_p.netloc == "wger.de" or _p.netloc.endswith(".wger.de")):
+        return False
     for attempt in range(1, _WGER_RETRIES + 1):
         try:
             req = urllib.request.Request(img_url, headers=_WGER_HEADERS)
@@ -1696,6 +1701,9 @@ def create_meal_item(meal_id: int, body: MealItemModel):
 @app.put("/api/meal-items/{item_id}")
 def update_meal_item(item_id: int, body: MealItemModel):
     conn = get_db()
+    # Verify item exists before updating
+    if not conn.execute("SELECT id FROM meal_items WHERE id=?", (item_id,)).fetchone():
+        conn.close(); raise HTTPException(404, "Meal item not found")
     conn.execute(
         """UPDATE meal_items SET source_type=?,food_name=?,quantity=?,weight_g=?,serving_size=?,
            protein_g=?,carbs_g=?,fat_g=?,fiber_g=?,sodium_mg=?,potassium_mg=?,sort_order=? WHERE id=?""",
@@ -1705,13 +1713,17 @@ def update_meal_item(item_id: int, body: MealItemModel):
     conn.commit()
     row = conn.execute("SELECT * FROM meal_items WHERE id=?", (item_id,)).fetchone()
     conn.close()
-    if not row: raise HTTPException(404)
     return dict(row)
 
 @app.delete("/api/meal-items/{item_id}")
 def delete_meal_item(item_id: int):
     conn = get_db()
-    row = conn.execute("SELECT id FROM meal_items WHERE id=?", (item_id,)).fetchone()
+    # Verify item exists and its parent meal is valid (ownership chain)
+    row = conn.execute(
+        "SELECT mi.id FROM meal_items mi "
+        "JOIN meals m ON m.id = mi.meal_id "
+        "WHERE mi.id=?", (item_id,)
+    ).fetchone()
     if not row: raise HTTPException(404, "Meal item not found")
     conn.execute("DELETE FROM meal_items WHERE id=?", (item_id,))
     conn.commit(); conn.close()
@@ -1779,6 +1791,8 @@ def delete_workout_plan(athlete_id: int, plan_id: int):
 @app.post("/api/workout-sessions")
 def create_session(body: WorkoutSessionModel):
     conn = get_db()
+    if not conn.execute("SELECT id FROM workout_plans WHERE id=?", (body.plan_id,)).fetchone():
+        conn.close(); raise HTTPException(404, "Workout plan not found")
     cur = conn.execute("""INSERT INTO workout_sessions (plan_id,day_of_week,session_title,muscle_groups,session_notes,sort_order)
         VALUES (?,?,?,?,?,?)""",
         (body.plan_id,body.day_of_week,body.session_title,json.dumps(body.muscle_groups),
@@ -1810,7 +1824,12 @@ def update_session(session_id: int, body: WorkoutSessionModel):
 @app.delete("/api/workout-sessions/{session_id}")
 def delete_session(session_id: int):
     conn = get_db()
-    row = conn.execute("SELECT id FROM workout_sessions WHERE id=?", (session_id,)).fetchone()
+    # Verify session exists and its parent plan is valid (ownership chain)
+    row = conn.execute(
+        "SELECT ws.id FROM workout_sessions ws "
+        "JOIN workout_plans wp ON wp.id = ws.plan_id "
+        "WHERE ws.id=?", (session_id,)
+    ).fetchone()
     if not row: raise HTTPException(404, "Session not found")
     conn.execute("DELETE FROM workout_sessions WHERE id=?", (session_id,))
     conn.commit(); conn.close()
@@ -1903,7 +1922,13 @@ def update_exercise(exercise_id: int, body: WorkoutExerciseModel):
 @app.delete("/api/workout-exercises/{exercise_id}")
 def delete_exercise(exercise_id: int):
     conn = get_db()
-    row = conn.execute("SELECT id FROM workout_exercises WHERE id=?", (exercise_id,)).fetchone()
+    # Verify exercise exists and its ownership chain (session → plan) is intact
+    row = conn.execute(
+        "SELECT we.id FROM workout_exercises we "
+        "JOIN workout_sessions ws ON ws.id = we.session_id "
+        "JOIN workout_plans wp ON wp.id = ws.plan_id "
+        "WHERE we.id=?", (exercise_id,)
+    ).fetchone()
     if not row: raise HTTPException(404, "Exercise not found")
     conn.execute("DELETE FROM workout_exercises WHERE id=?", (exercise_id,))
     conn.commit(); conn.close()
@@ -2367,7 +2392,7 @@ async def restore_backup(request: Request):
     except Exception as exc:
         conn.rollback()
         conn.close()
-        raise HTTPException(500, f"Restore failed: {exc}")
+        raise HTTPException(500, "Restore failed — database could not be updated. Check server.log for details.")
 
     conn.close()
     return {
@@ -2394,4 +2419,4 @@ if FRONTEND_DIR.exists():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=False)
