@@ -222,7 +222,9 @@ for i in \$(seq 1 30); do
 done
 
 open "http://localhost:\$PORT"
-echo "BodyBuilder is running. Close this window anytime — the app will keep running."
+
+# Close this Terminal window — the server keeps running in the background via nohup.
+osascript -e 'tell application "Terminal" to close first window' 2>/dev/null &
 LAUNCH_EOF
 
 chmod +x "$LAUNCHER"

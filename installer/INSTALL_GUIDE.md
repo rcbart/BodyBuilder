@@ -75,9 +75,21 @@ You only need to do this once. BodyBuilder is downloaded as a ZIP file — no sp
 1. Open the **`bodyBuilder`** folder you downloaded in Step 1.
 2. Inside it, open the **`installer`** folder.
 3. Find the file called **`install.command`**.
-4. **Right-click** on `install.command` and choose **"Open"** from the menu.
-   > ⚠️ You must right-click and choose Open the **first time only**. If you just double-click, macOS may block it — see [macOS blocked the installer](#macos-says-the-file-cant-be-opened) below.
-5. A security dialog will appear asking if you're sure. Click **"Open"**.
+
+> ### ⚠️ IMPORTANT — Read this before clicking anything
+>
+> **You must right-click the file — do not double-click it.**
+>
+> If you double-click `install.command`, macOS will silently block it with no clear explanation. Nothing will happen, or you will see a vague security error.
+>
+> **The correct steps are:**
+> 1. **Right-click** (or Control-click) `install.command`
+> 2. Choose **"Open"** from the menu that appears
+> 3. In the security dialog, click **"Open"**
+>
+> You only need to do this once. After installation, the app launches normally.
+
+4. After clicking **"Open"** in the security dialog, a Terminal window opens and the installer begins.
 6. A Terminal window opens and the installer begins. You will see progress messages.
 7. When prompted **"Press Return to continue"**, press the **Return** key on your keyboard.
 8. The installer will download the required packages. **This may take 1–2 minutes** — you will see text appearing as each package is installed.
@@ -97,11 +109,11 @@ Look for **BodyBuilder** on your Desktop. Double-click it.
 Open Finder, click **Applications** in the left sidebar, and double-click **BodyBuilder**.
 
 **What happens when you launch:**
-- A brief Terminal window appears while the server starts (5–10 seconds)
+- A brief Terminal window flashes open while the server starts, then **closes on its own** — this is normal
 - Your web browser opens automatically to `http://localhost:8000`
 - The app is ready to use
 
-> The Terminal window can be **minimised** or left in the background — do not close it while using the app.
+> BodyBuilder runs in the background after the Terminal window closes. You can use it in your browser as long as you like.
 
 ### First launch — no athletes yet?
 
