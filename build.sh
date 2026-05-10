@@ -92,6 +92,38 @@ if ! command -v create-dmg &>/dev/null; then
   brew install create-dmg
 fi
 
+# ── Generate .icns icon ───────────────────────────────────────────────────────
+# PyInstaller on macOS requires .icns — SVG is not accepted.
+# We convert once and cache the result at frontend/BodyBuilder.icns.
+ICNS_PATH="frontend/BodyBuilder.icns"
+if [[ ! -f "$ICNS_PATH" ]]; then
+  echo "→ Generating .icns app icon from frontend/favicon.svg..."
+
+  # rsvg-convert renders the SVG to a high-res PNG cleanly
+  if ! command -v rsvg-convert &>/dev/null; then
+    echo "→ Installing librsvg (SVG → PNG conversion)..."
+    brew install librsvg
+  fi
+
+  ICONSET_DIR="$(mktemp -d)/BodyBuilder.iconset"
+  TMP_PNG="$(mktemp).png"
+  mkdir -p "$ICONSET_DIR"
+
+  rsvg-convert -w 1024 -h 1024 "frontend/favicon.svg" -o "$TMP_PNG"
+
+  # macOS requires these exact filenames inside the .iconset folder
+  for size in 16 32 128 256 512; do
+    sips -z $size $size         "$TMP_PNG" --out "${ICONSET_DIR}/icon_${size}x${size}.png"     &>/dev/null
+    sips -z $((size*2)) $((size*2)) "$TMP_PNG" --out "${ICONSET_DIR}/icon_${size}x${size}@2x.png" &>/dev/null
+  done
+  # 1024 px slot (512@2x)
+  cp "$TMP_PNG" "${ICONSET_DIR}/icon_512x512@2x.png"
+
+  iconutil -c icns "$ICONSET_DIR" -o "$ICNS_PATH"
+  rm -f "$TMP_PNG"
+  echo "→ Icon saved to ${ICNS_PATH}"
+fi
+
 # ── Hidden imports (uvicorn uses dynamic loading internally) ──────────────────
 HIDDEN=(
   uvicorn.logging
@@ -120,8 +152,10 @@ done
 #   arch_label: arm64 | x86_64 | universal2 | "" (native, no flag)
 run_pyinstaller() {
   local arch_label="$1"
-  local arch_flag=""
-  [[ -n "$arch_label" ]] && arch_flag="--target-arch ${arch_label}"
+  # Use an array so zsh word-splits correctly (a plain string would be passed
+  # as one token, e.g. "--target-arch arm64" instead of two separate args)
+  local -a arch_args=()
+  [[ -n "$arch_label" ]] && arch_args=(--target-arch "$arch_label")
 
   echo ""
   echo "── PyInstaller: ${arch_label:-${HOST_ARCH}} ──────────────────────────────────────────"
@@ -135,10 +169,10 @@ run_pyinstaller() {
     --onedir \
     --clean \
     --noconfirm \
-    ${arch_flag} \
+    "${arch_args[@]}" \
     --add-data "frontend:frontend" \
     --add-data "VERSION:." \
-    --icon "frontend/favicon.svg" \
+    --icon "$ICNS_PATH" \
     "${HIDDEN_ARGS[@]}" \
     app_launcher.py
 
@@ -163,7 +197,7 @@ make_dmg() {
 
   create-dmg \
     --volname "BodyBuilder ${VERSION}" \
-    --volicon "frontend/favicon.svg" \
+    --volicon "$ICNS_PATH" \
     --window-pos 200 120 \
     --window-size 600 400 \
     --icon-size 100 \

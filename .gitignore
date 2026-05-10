@@ -155,6 +155,10 @@ Icon
 tempCodeRunnerFile.py
 DOCKER-COMPLETE.code-workspace
 
+# ── Build artifacts ───────────────────────────────────────────────────────────
+# Generated icon (converted from SVG at build time — not source)
+frontend/BodyBuilder.icns
+
 # ── Claude / AI tooling ───────────────────────────────────────────────────────
 # Claude Code project settings and session data
 .claude/

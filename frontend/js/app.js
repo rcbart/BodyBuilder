@@ -16,7 +16,6 @@ function App() {
   const [tab, setTab]                 = useState("athlete");
   const [loading, setLoading]         = useState(true);
   const [version, setVersion]         = useState({ major:1, minor:0, tiny:0, notes:"" });
-  const [showVer, setShowVer]         = useState(false);
   const [showManage, setShowManage]   = useState(false);
   const [menuOpen, setMenuOpen]       = useState(false);
   const [theme, setTheme]             = useState(() => localStorage.getItem("bb-theme") || "dark");
@@ -60,12 +59,6 @@ function App() {
       toast.show("Failed to load athletes", "error");
     }
     setLoading(false);
-  }
-
-  async function saveVersion(v) {
-    const u = await apiPut("/version", v);
-    setVersion(u);
-    toast.show(`Version set to v${u.major}.${u.minor}.${u.tiny}`, "success");
   }
 
   function initials(name) {
@@ -132,7 +125,7 @@ function App() {
           </div>
 
           {/* Version */}
-          <div className="version-badge" onClick={() => setShowVer(true)} title="Click to set version">
+          <div className="version-badge" title={`BodyBuilder v${version.major}.${version.minor}.${version.tiny}`}>
             v{version.major}.{version.minor}.{version.tiny}
           </div>
 
@@ -184,7 +177,6 @@ function App() {
       )}
 
       {/* ── Dialogs ── */}
-      {showVer && <VersionDialog current={version} onSave={saveVersion} onClose={() => setShowVer(false)} />}
       {showManage && (
         <ManageAthletesDialog
           athletes={athletes}
