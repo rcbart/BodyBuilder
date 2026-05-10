@@ -1,6 +1,6 @@
 # BodyBuilder — Installation Guide
 
-**Version 1.1.4 · macOS**
+**Version 1.2.0 · macOS**
 
 ---
 

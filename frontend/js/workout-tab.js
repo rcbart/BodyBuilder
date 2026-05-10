@@ -50,19 +50,19 @@ const HR_ZONES = [
 
 // ── Exercise Library (grouped by muscle group) ────────────────────────────────
 const EXERCISE_LIBRARY = {
-  "Chest":      ["Barbell Bench Press","Dumbbell Bench Press","Incline Bench Press","Decline Bench Press","Push-Up","Cable Fly","Dumbbell Fly","Chest Dip","Cable Crossover","Pec Deck"],
-  "Back":       ["Pull-Up","Chin-Up","Barbell Row","Dumbbell Row","Cable Row","Lat Pulldown","T-Bar Row","Face Pull","Deadlift","Rack Pull"],
-  "Shoulders":  ["Barbell Overhead Press","Dumbbell Overhead Press","Lateral Raise","Front Raise","Rear Delt Fly","Cable Lateral Raise","Upright Row","Arnold Press","Shrug"],
-  "Biceps":     ["Barbell Curl","Dumbbell Curl","Hammer Curl","Cable Curl","Preacher Curl","Incline Dumbbell Curl","Concentration Curl","Spider Curl"],
-  "Triceps":    ["Close-Grip Bench Press","Tricep Pushdown","Overhead Tricep Extension","Skull Crusher","Dip","Cable Kickback","Diamond Push-Up"],
-  "Forearms":   ["Wrist Curl","Reverse Wrist Curl","Farmer's Walk","Pinch Grip Hold"],
-  "Quads":      ["Barbell Squat","Front Squat","Leg Press","Hack Squat","Bulgarian Split Squat","Leg Extension","Lunge","Step-Up","Goblet Squat"],
-  "Hamstrings": ["Romanian Deadlift","Leg Curl","Good Morning","Glute-Ham Raise","Nordic Hamstring Curl","Stiff-Leg Deadlift"],
-  "Glutes":     ["Hip Thrust","Cable Kickback","Sumo Deadlift","Glute Bridge","Clamshell","Abductor Machine"],
-  "Calves":     ["Standing Calf Raise","Seated Calf Raise","Donkey Calf Raise","Single-Leg Calf Raise"],
-  "Core":       ["Plank","Cable Crunch","Hanging Leg Raise","Ab Rollout","Side Plank","Russian Twist","Crunch","Sit-Up","Pallof Press"],
-  "Cardio":     ["Treadmill Run","Cycling","Rowing","Jump Rope","Stair Climber","Sled Push","Battle Ropes"],
-  "Full Body":  ["Clean and Press","Kettlebell Swing","Burpee","Box Jump","Thruster","Turkish Get-Up"],
+  "Chest":      ["Barbell Bench Press","Dumbbell Bench Press","Incline Barbell Bench Press","Incline Dumbbell Bench Press","Decline Barbell Bench Press","Decline Dumbbell Bench Press","Push-Up","Wide-Grip Push-Up","Archer Push-Up","Cable Fly","Low Cable Fly","High Cable Fly","Dumbbell Fly","Incline Dumbbell Fly","Decline Dumbbell Fly","Chest Dip","Cable Crossover","Pec Deck","Machine Chest Press","Smith Machine Bench Press","Landmine Press","Close-Grip Bench Press","Svend Press","Dumbbell Pullover","Hex Press","Deficit Push-Up","Ring Push-Up"],
+  "Back":       ["Pull-Up","Chin-Up","Neutral-Grip Pull-Up","Wide-Grip Pull-Up","Barbell Row","Pendlay Row","Dumbbell Row","Meadows Row","Seal Row","Cable Row","Wide-Grip Cable Row","Single-Arm Cable Row","Lat Pulldown","Underhand Lat Pulldown","Straight-Arm Pulldown","T-Bar Row","Chest-Supported Row","Machine Row","Face Pull","Deadlift","Rack Pull","Deficit Deadlift","Trap Bar Deadlift","Incline Dumbbell Row","Banded Pull-Apart","Hyperextension","Reverse Hyperextension"],
+  "Shoulders":  ["Barbell Overhead Press","Seated Barbell Overhead Press","Dumbbell Overhead Press","Seated Dumbbell Press","Arnold Press","Smith Machine Overhead Press","Machine Shoulder Press","Lateral Raise","Cable Lateral Raise","Leaning Cable Lateral Raise","Front Raise","Dumbbell Front Raise","Cable Front Raise","Rear Delt Fly","Cable Rear Delt Fly","Machine Rear Delt Fly","Face Pull","Upright Row","Dumbbell Shrug","Barbell Shrug","Behind-the-Neck Press","Push Press","Band Pull-Apart","Landmine Lateral Raise","Y-T-W Raise"],
+  "Biceps":     ["Barbell Curl","EZ-Bar Curl","Dumbbell Curl","Alternating Dumbbell Curl","Hammer Curl","Cross-Body Hammer Curl","Cable Curl","Rope Cable Curl","Preacher Curl","EZ-Bar Preacher Curl","Machine Preacher Curl","Incline Dumbbell Curl","Concentration Curl","Spider Curl","Reverse Curl","Zottman Curl","Drag Curl","21s","TRX Curl","Chin-Up"],
+  "Triceps":    ["Close-Grip Bench Press","Tricep Pushdown","Rope Pushdown","Overhead Tricep Extension","Dumbbell Overhead Extension","EZ-Bar Overhead Extension","Skull Crusher","EZ-Bar Skull Crusher","Dip","Bench Dip","Cable Kickback","Dumbbell Kickback","Diamond Push-Up","JM Press","Tate Press","Machine Tricep Extension","Single-Arm Pushdown","Board Press","Dumbbell Floor Press"],
+  "Forearms":   ["Wrist Curl","Barbell Wrist Curl","Reverse Wrist Curl","Farmer's Walk","Pinch Grip Hold","Plate Pinch","Wrist Roller","Behind-the-Back Wrist Curl","Reverse Curl","Hammer Curl","Dead Hang","Towel Pull-Up"],
+  "Quads":      ["Barbell Back Squat","Barbell Front Squat","Box Squat","Pin Squat","Pause Squat","Leg Press","Hack Squat","Smith Machine Squat","Bulgarian Split Squat","Leg Extension","Lunge","Walking Lunge","Reverse Lunge","Lateral Lunge","Step-Up","Goblet Squat","Zercher Squat","Overhead Squat","Sissy Squat","Wall Sit","Landmine Squat","TRX Split Squat","Single-Leg Leg Press"],
+  "Hamstrings": ["Romanian Deadlift","Single-Leg Romanian Deadlift","Sumo Romanian Deadlift","Lying Leg Curl","Seated Leg Curl","Standing Leg Curl","Good Morning","Glute-Ham Raise","Nordic Hamstring Curl","Stiff-Leg Deadlift","Snatch-Grip Deadlift","Cable Pull-Through","Swiss Ball Leg Curl","Banded Good Morning","Dumbbell Romanian Deadlift"],
+  "Glutes":     ["Barbell Hip Thrust","Dumbbell Hip Thrust","Single-Leg Hip Thrust","Glute Bridge","Single-Leg Glute Bridge","Cable Hip Kickback","Donkey Kickback","Machine Hip Abduction","Clamshell","Lateral Band Walk","Sumo Deadlift","Step-Up","Bulgarian Split Squat","Romanian Deadlift","Reverse Hyperextension","Cable Pull-Through","Frog Pump","Banded Squat Walk"],
+  "Calves":     ["Standing Calf Raise","Seated Calf Raise","Donkey Calf Raise","Single-Leg Calf Raise","Leg Press Calf Raise","Smith Machine Calf Raise","Tibialis Raise","Jump Rope","Box Jump","Eccentric Calf Raise"],
+  "Core":       ["Plank","Side Plank","Cable Crunch","Machine Crunch","Hanging Leg Raise","Hanging Knee Raise","Ab Rollout","Barbell Rollout","Dead Bug","Bird Dog","Dragon Flag","L-Sit","Hollow Body Hold","V-Up","Bicycle Crunch","Crunch","Weighted Crunch","Sit-Up","GHD Sit-Up","Russian Twist","Pallof Press","Cable Woodchop","Windshield Wiper","Reverse Crunch","Leg Raise","TRX Fallout","Landmine Rotation","Suitcase Carry"],
+  "Full Body":  ["Power Clean","Hang Clean","Clean and Press","Snatch","Hang Snatch","Push Press","Barbell Thruster","Dumbbell Thruster","Kettlebell Swing","Kettlebell Clean and Press","Turkish Get-Up","Burpee","Box Jump","Broad Jump","Medicine Ball Slam","Renegade Row","Man Maker","Dumbbell Complex","Barbell Complex","Battle Ropes","Sled Push","Sled Pull","Farmers Carry","Yoke Carry"],
+  "Cardio":     ["Treadmill Run","Outdoor Run","Cycling","Stationary Bike","Rowing","Jump Rope","Stair Climber","Sled Push","Battle Ropes","Elliptical","Swimming","Assault Bike","Sprint Intervals"],
 };
 const ALL_MUSCLE_GROUPS = Object.keys(EXERCISE_LIBRARY);
 
@@ -99,14 +99,15 @@ function ExerciseDialog({ exercise, sessionId, onSave, onClose, units }) {
       : [makeSet({set_number:1, type:"M"})],
     rep_range:      exercise?.rep_range || "",
     rir:            exercise?.rir ?? 2,
-    tempo:          exercise?.tempo || "",
-    intensifiers:   exercise?.intensifiers || "",
-    exercise_notes: exercise?.exercise_notes || "",
+    tempo:          exercise?.tempo || "3-1-0-1",
+    intensifiers:        "",
+    exercise_notes:      exercise?.exercise_notes || "",
+    warmup_instructions: exercise?.warmup_instructions || "",
   });
 
   // Cardio-specific state
   const [cardio, setCardio] = useState({
-    cardio_type:      exercise?.sets_json?.[0]?.cardio_type || "",
+    cardio_type:      (exercise?.sets_json?.[0]?.cardio_type || "").split(", ").filter(Boolean),
     duration_hours:   exercise?.sets_json?.[0]?.duration_hours ?? 0,
     duration_minutes: exercise?.sets_json?.[0]?.duration_minutes ?? 30,
     rpe:              exercise?.sets_json?.[0]?.rpe ?? 6,
@@ -119,7 +120,11 @@ function ExerciseDialog({ exercise, sessionId, onSave, onClose, units }) {
   const [showLibrary, setShowLibrary] = useState(false);
   const [libSearch, setLibSearch] = useState("");
   const [libGroup, setLibGroup] = useState("");
-  const [expandedSets, setExpandedSets] = useState(new Set());
+  // Pre-expand all sets (existing when editing, the initial set when adding)
+  const [expandedSets, setExpandedSets] = useState(() => {
+    const count = exercise?.sets_json?.length || 1;
+    return new Set(Array.from({ length: count }, (_, i) => i));
+  });
   const [showClearWeights, setShowClearWeights] = useState(false);
   const [imageLoading, setImageLoading] = useState(false);
   const [showImageUrl, setShowImageUrl] = useState(false);
@@ -144,8 +149,8 @@ function ExerciseDialog({ exercise, sessionId, onSave, onClose, units }) {
     err.image_url    = validate(f.image_url,    [rules.safeUrl]);
     err.rep_range    = validate(f.rep_range,    [rules.maxLen(20)]);
     err.tempo        = validate(f.tempo,        [rules.maxLen(20)]);
-    err.intensifiers = validate(f.intensifiers, [rules.maxLen(200), rules.noScript]);
-    err.exercise_notes = validate(f.exercise_notes, [rules.maxLen(500), rules.noScript]);
+    err.exercise_notes      = validate(f.exercise_notes,      [rules.maxLen(1000), rules.noScript]);
+    err.warmup_instructions = validate(f.warmup_instructions, [rules.maxLen(1000), rules.noScript]);
     err.rir          = validate(f.rir,          [rules.numeric, rules.range(0,10)]);
     f.sets_json.forEach((s,i) => {
       if (validate(s.weight, [rules.numeric, rules.positiveNum])) err[`w${i}`] = "≥ 0";
@@ -159,7 +164,7 @@ function ExerciseDialog({ exercise, sessionId, onSave, onClose, units }) {
   function validateCardio() {
     const err = {};
     err.name = validate(f.name, [rules.required, rules.maxLen(100), rules.noScript]);
-    if (!cardio.cardio_type) err.cardio_type = "Select a cardio type";
+    if (!cardio.cardio_type?.length) err.cardio_type = "Select at least one cardio type";
     const totalMins = (+cardio.duration_hours || 0) * 60 + (+cardio.duration_minutes || 0);
     if (totalMins <= 0) err.duration = "Duration must be greater than 0";
     if (cardio.hr_min !== "" && cardio.hr_min !== null) {
@@ -182,7 +187,9 @@ function ExerciseDialog({ exercise, sessionId, onSave, onClose, units }) {
   // ── Set management (strength) ──────────────────────────────────────────────
   function addSet() {
     const last = f.sets_json[f.sets_json.length-1] || {};
+    const newIdx = f.sets_json.length;
     setF(p=>({...p, sets_json:[...p.sets_json, makeSet({set_number:p.sets_json.length+1, type:last.type||"M"})]}));
+    setExpandedSets(prev => { const n=new Set(prev); n.add(newIdx); return n; });
   }
 
   function duplicateSet(i) {
@@ -247,7 +254,7 @@ function ExerciseDialog({ exercise, sessionId, onSave, onClose, units }) {
           set_type: "working",
           rir: 0,
           sets_json: [{
-            cardio_type:      cardio.cardio_type,
+            cardio_type:      cardio.cardio_type.join(", "),
             duration_hours:   +cardio.duration_hours || 0,
             duration_minutes: +cardio.duration_minutes || 0,
             rpe:              cardio.rpe !== "" ? +cardio.rpe : null,
@@ -281,7 +288,10 @@ function ExerciseDialog({ exercise, sessionId, onSave, onClose, units }) {
   return (
     <div className="overlay">
       <div className="dialog dialog-xl" style={{maxHeight:"90vh",overflowY:"auto"}}>
-        <div className="dialog-title"><Icon name="dumbbell" size={20}/>{isNew?"Add Exercise":"Edit Exercise"}</div>
+        <div className="dialog-title" style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <span style={{display:"flex",alignItems:"center",gap:8}}><Icon name="dumbbell" size={20}/>{isNew?"Add Exercise":"Edit Exercise"}</span>
+          <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:"var(--muted)",padding:4,lineHeight:1,fontSize:18,fontWeight:700}} title="Close">✕</button>
+        </div>
 
         {/* ── Exercise Type Toggle ── */}
         <div style={{display:"flex",gap:0,marginBottom:18,background:"var(--surface2)",borderRadius:8,padding:3,width:"fit-content"}}>
@@ -326,19 +336,24 @@ function ExerciseDialog({ exercise, sessionId, onSave, onClose, units }) {
                 {ALL_MUSCLE_GROUPS.map(g=><option key={g} value={g}>{g}</option>)}
               </select>
             </div>
-            <div style={{maxHeight:220,overflowY:"auto"}}>
-              {libFiltered.map(({group,exs})=>(
-                <div key={group} style={{marginBottom:12}}>
-                  <div style={{fontSize:11,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",letterSpacing:.5,marginBottom:6}}>{group}</div>
-                  <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                    {exs.map(ex=>(
-                      <button key={ex} className="btn btn-ghost btn-sm" style={{fontSize:12}} onClick={()=>pickLibraryExercise(ex,group)}>{ex}</button>
-                    ))}
-                  </div>
-                </div>
-              ))}
-              {libFiltered.length===0&&<div style={{color:"var(--muted)",fontSize:13}}>No exercises found.</div>}
-            </div>
+            <select size={8}
+              style={{width:"100%",background:"var(--surface)",border:"1px solid var(--border2)",borderRadius:6,color:"var(--text)",fontFamily:"var(--font)",fontSize:13}}
+              onChange={ev=>{
+                const [group, ex] = ev.target.value.split("||");
+                if (ex) pickLibraryExercise(ex, group);
+              }}
+              value="">
+              {libFiltered.length === 0
+                ? <option disabled>No exercises found</option>
+                : libFiltered.map(({group,exs})=>(
+                    <optgroup key={group} label={group}>
+                      {exs.map(ex=>(
+                        <option key={ex} value={`${group}||${ex}`}>{ex}</option>
+                      ))}
+                    </optgroup>
+                  ))
+              }
+            </select>
           </div>
         )}
 
@@ -387,11 +402,23 @@ function ExerciseDialog({ exercise, sessionId, onSave, onClose, units }) {
           <div>
             {/* Cardio Type */}
             <FF label="Cardio Type *" error={e.cardio_type}>
-              <select value={cardio.cardio_type} className={e.cardio_type?"err":""}
-                onChange={ev=>sfc("cardio_type",ev.target.value)}>
-                <option value="">— Select activity —</option>
-                {CARDIO_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
-              </select>
+              <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                {CARDIO_TYPES.map(t=>{
+                  const selected = cardio.cardio_type.includes(t);
+                  return (
+                    <button key={t} type="button"
+                      onClick={()=>sfc("cardio_type", selected
+                        ? cardio.cardio_type.filter(x=>x!==t)
+                        : [...cardio.cardio_type, t])}
+                      style={{padding:"6px 12px",borderRadius:6,cursor:"pointer",fontFamily:"var(--font)",fontSize:12,fontWeight:selected?700:400,
+                        border:`1px solid ${selected?"var(--accent)":"var(--border2)"}`,
+                        background:selected?"var(--accent-dim)":"var(--surface2)",
+                        color:selected?"var(--accent)":"var(--text2)"}}>
+                      {t}
+                    </button>
+                  );
+                })}
+              </div>
             </FF>
 
             {/* Duration */}
@@ -506,30 +533,22 @@ function ExerciseDialog({ exercise, sessionId, onSave, onClose, units }) {
                   {ALL_MUSCLE_GROUPS.map(g=><option key={g} value={g}>{g}</option>)}
                 </select>
               </FF>
-              <FF label="Set Type">
-                <select value={f.set_type} onChange={ev=>sf("set_type",ev.target.value)}>
-                  {SET_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
-                </select>
-              </FF>
-              <FF label="Default Rep Range" error={e.rep_range} hint="e.g. 8-12">
-                <input value={f.rep_range} className={e.rep_range?"err":""} maxLength={20}
-                  onChange={ev=>sf("rep_range",ev.target.value)} placeholder="e.g. 8–12"/>
-              </FF>
               <FF label="Default RIR" error={e.rir} hint="0=failure">
                 <input type="number" min="0" max="10" value={f.rir} className={e.rir?"err":""}
                   onChange={ev=>sf("rir",ev.target.value)}/>
               </FF>
-              <FF label="Default Tempo" error={e.tempo} hint="e.g. 3-1-2-0">
+              <FF label="Tempo" error={e.tempo} hint="e.g. 3-1-0-1">
                 <input value={f.tempo} className={e.tempo?"err":""} maxLength={20}
-                  onChange={ev=>sf("tempo",ev.target.value)} placeholder="3-1-2-0"/>
+                  onChange={ev=>sf("tempo",ev.target.value)} placeholder="3-1-0-1"/>
               </FF>
-              <FF label="Intensifiers" error={e.intensifiers} hint="e.g. Myo-reps, Rest-Pause" full>
-                <input value={f.intensifiers} className={e.intensifiers?"err":""} maxLength={200}
-                  onChange={ev=>sf("intensifiers",ev.target.value)} placeholder="Techniques used…"/>
+              <FF label="Training Instructions" error={e.exercise_notes} full>
+                <textarea rows={2} value={f.exercise_notes} className={e.exercise_notes?"err":""} maxLength={1000}
+                  onChange={ev=>sf("exercise_notes",ev.target.value)} placeholder="Cues, coaching notes for this exercise…"/>
               </FF>
-              <FF label="Exercise Notes" error={e.exercise_notes} full>
-                <textarea rows={2} value={f.exercise_notes} className={e.exercise_notes?"err":""} maxLength={500}
-                  onChange={ev=>sf("exercise_notes",ev.target.value)} placeholder="Cues, coaching notes…"/>
+              <FF label="Warm Up Instructions" error={e.warmup_instructions} full>
+                <textarea rows={2} value={f.warmup_instructions} className={e.warmup_instructions?"err":""} maxLength={1000}
+                  onChange={ev=>sf("warmup_instructions",ev.target.value)}
+                  placeholder="e.g. 2 sets × 10 with empty bar, then 60% × 5 before working sets…"/>
               </FF>
             </div>
 
@@ -547,8 +566,8 @@ function ExerciseDialog({ exercise, sessionId, onSave, onClose, units }) {
             </div>
 
             <div style={{background:"var(--surface2)",borderRadius:8,padding:"10px 12px",marginBottom:16}}>
-              <div style={{display:"grid",gridTemplateColumns:"32px 48px 1fr 72px auto",gap:8,marginBottom:6}}>
-                {["#","Type",`Weight (${wtLabel(units)})`, "Reps",""].map((h,hi)=>(
+              <div style={{display:"grid",gridTemplateColumns:"32px 48px 1fr 1fr auto",gap:8,marginBottom:6}}>
+                {["#","Type",`Wt (${wtLabel(units)})`,"Reps",""].map((h,hi)=>(
                   <div key={hi} style={{fontSize:11,fontWeight:700,color:"var(--muted)",textTransform:"uppercase"}}>{h}</div>
                 ))}
               </div>
@@ -556,10 +575,10 @@ function ExerciseDialog({ exercise, sessionId, onSave, onClose, units }) {
               {f.sets_json.map((s,i)=>{
                 const t = SET_ROW_TYPES.find(x=>x.value===(s.type||"M")) || SET_ROW_TYPES[1];
                 const expanded = expandedSets.has(i);
-                const hasPerSetData = s.rep_range || s.rir !== "" || s.tempo || s.notes;
+                const hasPerSetData = s.rir !== "" || s.tempo || s.notes;
                 return (
                   <div key={i} style={{marginBottom:8,borderRadius:6,border:`1px solid ${expanded?"var(--border2)":"transparent"}`,overflow:"hidden"}}>
-                    <div style={{display:"grid",gridTemplateColumns:"32px 48px 1fr 72px auto",gap:8,alignItems:"center",
+                    <div style={{display:"grid",gridTemplateColumns:"32px 48px 1fr 1fr auto",gap:8,alignItems:"center",
                       padding:expanded?"8px 10px 6px":"2px 0",background:expanded?"var(--surface)":"transparent"}}>
                       <div style={{fontWeight:700,textAlign:"center",color:"var(--muted)",fontSize:13}}>{s.set_number}</div>
                       <button title={`${t.title} — click to cycle`} onClick={()=>cycleSetType(i)}
@@ -592,12 +611,6 @@ function ExerciseDialog({ exercise, sessionId, onSave, onClose, units }) {
                     {expanded && (
                       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,padding:"8px 10px 10px",background:"var(--surface)"}}>
                         <div>
-                          <label style={{fontSize:11,fontWeight:700,color:"var(--muted)",display:"block",marginBottom:4}}>REP RANGE</label>
-                          <input value={s.rep_range||""} maxLength={20} onChange={ev=>updateSet(i,"rep_range",ev.target.value)}
-                            placeholder={f.rep_range||"e.g. 8–12"}
-                            style={{width:"100%",background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:6,padding:"6px 8px",color:"var(--text)",fontFamily:"var(--font)",fontSize:13}}/>
-                        </div>
-                        <div>
                           <label style={{fontSize:11,fontWeight:700,color:"var(--muted)",display:"block",marginBottom:4}}>RIR</label>
                           <input type="number" min="0" max="10"
                             value={s.rir===""||s.rir==null?"":s.rir}
@@ -608,11 +621,11 @@ function ExerciseDialog({ exercise, sessionId, onSave, onClose, units }) {
                         <div>
                           <label style={{fontSize:11,fontWeight:700,color:"var(--muted)",display:"block",marginBottom:4}}>TEMPO</label>
                           <input value={s.tempo||""} maxLength={20} onChange={ev=>updateSet(i,"tempo",ev.target.value)}
-                            placeholder={f.tempo||"3-1-2-0"}
+                            placeholder={f.tempo||"3-1-0-1"}
                             style={{width:"100%",background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:6,padding:"6px 8px",color:"var(--text)",fontFamily:"var(--font)",fontSize:13}}/>
                         </div>
                         <div style={{gridColumn:"1/-1"}}>
-                          <label style={{fontSize:11,fontWeight:700,color:"var(--muted)",display:"block",marginBottom:4}}>SET NOTES</label>
+                          <label style={{fontSize:11,fontWeight:700,color:"var(--muted)",display:"block",marginBottom:4}}>{s.type==="I"?"SET NOTES / INTENSIFIER":"SET NOTES"}</label>
                           <input value={s.notes||""} maxLength={200} onChange={ev=>updateSet(i,"notes",ev.target.value)}
                             placeholder="e.g. Pause at bottom, cluster reps…"
                             style={{width:"100%",background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:6,padding:"6px 8px",color:"var(--text)",fontFamily:"var(--font)",fontSize:13}}/>
@@ -639,7 +652,7 @@ function ExerciseDialog({ exercise, sessionId, onSave, onClose, units }) {
         <div className="dialog-actions">
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
           <button className="btn btn-primary" onClick={save} disabled={saving}>
-            {saving?<Spinner/>:<Icon name="save" size={14}/>}{isNew?"Add Exercise":"Save Changes"}
+            {saving?<Spinner/>:<Icon name="check" size={14}/>}Done
           </button>
         </div>
 
@@ -893,11 +906,12 @@ function SessionDialog({ session, planId, defaultDay, athleteId, onSave, onClose
 function WorkoutPlanFormDialog({ plan, athleteId, onSave, onClose }) {
   const isNew = !plan;
   const [f, setF] = useState({
-    athlete_id: athleteId,
-    title:      plan?.title || "",
-    start_date: plan?.start_date || "",
-    end_date:   plan?.end_date || "",
-    notes:      plan?.notes || "",
+    athlete_id:           athleteId,
+    title:                plan?.title || "",
+    start_date:           plan?.start_date || "",
+    end_date:             plan?.end_date || "",
+    notes:                plan?.notes || "",
+    warmup_instructions:  plan?.warmup_instructions || "",
   });
   const [e, setE]           = useState({});
   const [saving, setSaving] = useState(false);
@@ -905,8 +919,9 @@ function WorkoutPlanFormDialog({ plan, athleteId, onSave, onClose }) {
 
   function validate_() {
     const err = {};
-    err.title = validate(f.title, [rules.required, rules.maxLen(100), rules.noScript]);
-    err.notes = validate(f.notes, [rules.maxLen(500), rules.noScript]);
+    err.title                = validate(f.title,               [rules.required, rules.maxLen(100), rules.noScript]);
+    err.notes                = validate(f.notes,               [rules.maxLen(2000), rules.noScript]);
+    err.warmup_instructions  = validate(f.warmup_instructions, [rules.maxLen(2000), rules.noScript]);
     if (f.start_date && f.end_date && f.start_date > f.end_date) err.end_date = "Must be after start date";
     setE(err);
     return Object.values(err).every(v=>!v);
@@ -939,9 +954,14 @@ function WorkoutPlanFormDialog({ plan, athleteId, onSave, onClose }) {
               onChange={ev=>sf("end_date",ev.target.value)}/>
           </FF>
         </div>
-        <FF label="Notes" error={e.notes}>
-          <textarea rows={3} value={f.notes} className={e.notes?"err":""} maxLength={500}
-            onChange={ev=>sf("notes",ev.target.value)} placeholder="Plan overview, goals…"/>
+        <FF label="Training Notes" error={e.notes}>
+          <textarea rows={3} value={f.notes} className={e.notes?"err":""} maxLength={2000}
+            onChange={ev=>sf("notes",ev.target.value)} placeholder="Plan overview, goals, training instructions…"/>
+        </FF>
+        <FF label="Warm-Up Instructions" error={e.warmup_instructions}>
+          <textarea rows={3} value={f.warmup_instructions} className={e.warmup_instructions?"err":""} maxLength={2000}
+            onChange={ev=>sf("warmup_instructions",ev.target.value)}
+            placeholder="e.g. 5 min light cardio, dynamic stretching, activation drills…"/>
         </FF>
         <div className="dialog-actions">
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
@@ -967,6 +987,7 @@ function WorkoutPlanTab({ athleteId, toast, units }) {
   const [sessionDay, setSessionDay]     = useState("Monday");
   const [showExForm, setShowExForm]     = useState(false);
   const [editEx, setEditEx]             = useState(null);
+  const [exportingPlanId, setExportingPlanId] = useState(null);
   const { confirm, Confirmer }          = useConfirm();
 
   useEffect(() => { loadPlans(); }, [athleteId]);
@@ -976,6 +997,7 @@ function WorkoutPlanTab({ athleteId, toast, units }) {
       const data = await apiGet(`/athletes/${athleteId}/workout-plans`);
       setPlans(data);
       if (selectedPlan && !data.find(p=>p.id===selectedPlan)) setSelectedPlan(null);
+      else if (!selectedPlan && data.length > 0) setSelectedPlan(data[0].id);
     } catch(err) { toast.show(err.message,"error"); }
   }
 
@@ -1000,6 +1022,23 @@ function WorkoutPlanTab({ athleteId, toast, units }) {
     if (!ok) return;
     await apiDel(`/workout-exercises/${ex.id}`);
     loadPlans(); toast.show("Exercise removed","success");
+  }
+
+  async function exportPlan(plan) {
+    setExportingPlanId(plan.id);
+    try {
+      const resp = await fetch(`${API_BASE}/athletes/${athleteId}/workout-plans/${plan.id}/export-xlsx`);
+      if (!resp.ok) throw new Error("Export failed");
+      const blob = await resp.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      const safeName = plan.title.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_-]/g, "") || "plan";
+      a.download = `${safeName}_workout.xlsx`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast.show("Plan exported", "success");
+    } catch(err) { toast.show(err.message, "error"); }
+    setExportingPlanId(null);
   }
 
   const currentPlan    = plans.find(p=>p.id===selectedPlan);
@@ -1040,6 +1079,10 @@ function WorkoutPlanTab({ athleteId, toast, units }) {
                 </div>
               </div>
               <div style={{display:"flex",gap:6}} onClick={ev=>ev.stopPropagation()}>
+                <button className="btn btn-ghost btn-sm" title="Save plan as Excel"
+                  onClick={()=>exportPlan(plan)} disabled={exportingPlanId===plan.id}>
+                  {exportingPlanId===plan.id?<Spinner/>:<Icon name="download" size={14}/>}Save Plan
+                </button>
                 <button className="btn btn-ghost btn-sm btn-icon" onClick={()=>{setEditPlan(plan);setShowPlanForm(true);}}><Icon name="edit" size={14}/></button>
                 <button className="btn btn-ghost btn-sm btn-icon" onClick={()=>deletePlan(plan)}><Icon name="trash" size={14}/></button>
               </div>
@@ -1118,9 +1161,6 @@ function WorkoutPlanTab({ athleteId, toast, units }) {
                             <div style={{flex:1}}>
                               <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
                                 <div className="exercise-name">{ex.name}</div>
-                                <span className={`set-type-badge ${SET_TYPES.find(t=>t.value===ex.set_type)?.cls||"st-working"}`}>
-                                  {SET_TYPES.find(t=>t.value===ex.set_type)?.label||ex.set_type}
-                                </span>
                               </div>
                               <div className="exercise-meta" style={{display:"flex",gap:16,flexWrap:"wrap"}}>
                                 {ex.muscle_group&&<span><Icon name="tag" size={11}/> {ex.muscle_group}</span>}
@@ -1182,15 +1222,14 @@ function WorkoutPlanTab({ athleteId, toast, units }) {
                             <div style={{marginTop:8,overflowX:"auto"}}>
                               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                                 <thead><tr>
-                                  {["Set","Type",`Weight (${wtLabel(units)})`,"Reps","Rep Range","RIR","Tempo","Notes"].map(h=>(
+                                  {["Set","Type",`Weight (${wtLabel(units)})`,"Reps","RIR","Tempo","Notes"].map(h=>(
                                     <th key={h} style={{textAlign:"left",padding:"4px 8px",color:"var(--muted)",fontWeight:700,fontSize:11,textTransform:"uppercase",borderBottom:"1px solid var(--border)",whiteSpace:"nowrap"}}>{h}</th>
                                   ))}
                                 </tr></thead>
                                 <tbody>{ex.sets_json.map((s,si)=>{
                                   const td = SET_DISPLAY[s.type||"M"] || SET_DISPLAY.M;
-                                  const dispRepRange = s.rep_range || ex.rep_range || "—";
                                   const dispRir      = (s.rir!==""&&s.rir!=null) ? s.rir : (ex.rir!=null?ex.rir:"—");
-                                  const dispTempo    = s.tempo || ex.tempo || "—";
+                                  const dispTempo    = s.tempo || ex.tempo || "3-1-0-1";
                                   return (
                                     <tr key={si} style={{borderBottom:"1px solid var(--border)"}}>
                                       <td style={{padding:"6px 8px",fontWeight:700,color:"var(--muted)"}}>{s.set_number}</td>
@@ -1201,7 +1240,6 @@ function WorkoutPlanTab({ athleteId, toast, units }) {
                                       </td>
                                       <td style={{padding:"6px 8px"}}>{wtDisplay(s.weight,units)} {wtLabel(units)}</td>
                                       <td style={{padding:"6px 8px"}}>{s.reps} reps</td>
-                                      <td style={{padding:"6px 8px",color:"var(--text2)"}}>{dispRepRange}</td>
                                       <td style={{padding:"6px 8px",color:"var(--text2)"}}>{dispRir}</td>
                                       <td style={{padding:"6px 8px",color:"var(--text2)"}}>{dispTempo}</td>
                                       <td style={{padding:"6px 8px",color:"var(--text2)",fontStyle:s.notes?"normal":"italic",maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>

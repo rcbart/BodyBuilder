@@ -164,7 +164,25 @@ function BackupRestoreSection({ toast, onClose }) {
 function ManageAthletesSection({ athletes, currentId, onSwitch, onRefresh, toast }) {
   const [showForm, setShowForm]   = useState(false);
   const [editAth, setEditAth]     = useState(null);
+  const [exportingId, setExportingId] = useState(null);
   const { confirm, Confirmer }    = useConfirm();
+
+  async function handleExport(ath) {
+    setExportingId(ath.id);
+    try {
+      const resp = await fetch(`${API_BASE}/athletes/${ath.id}/export-xlsx`);
+      if (!resp.ok) throw new Error("Export failed");
+      const blob = await resp.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      const safeName = (ath.name || "athlete").replace(/\s+/g, "_");
+      a.download = `${safeName}_program.xlsx`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast.show("Program downloaded", "success");
+    } catch (err) { toast.show(err.message, "error"); }
+    setExportingId(null);
+  }
 
   function initials(name) {
     return (name || "?").split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
@@ -271,6 +289,12 @@ function ManageAthletesSection({ athletes, currentId, onSwitch, onRefresh, toast
                   </button>
                 )}
                 <button className="btn btn-ghost btn-sm btn-icon"
+                  onClick={() => handleExport(ath)}
+                  disabled={exportingId === ath.id}
+                  title="Download Excel program">
+                  {exportingId === ath.id ? <Spinner/> : <Icon name="download" size={14}/>}
+                </button>
+                <button className="btn btn-ghost btn-sm btn-icon"
                   onClick={() => { setEditAth(ath); setShowForm(true); }}
                   title="Edit athlete">
                   <Icon name="edit" size={14}/>
@@ -326,9 +350,6 @@ function AdminTab({ athleteId, toast, athletes, onRefresh, onSwitch }) {
   const [sendEmail, setSendEmail]   = useState("");
   const [sending, setSending]       = useState(false);
   const [sendErrors, setSendErrors] = useState({});
-
-  // ── Export state ──
-  const [exporting, setExporting] = useState(false);
 
   // ── Backup panel visibility (dismissible when athletes exist) ──
   const [showBackup, setShowBackup] = useState(true);
@@ -441,25 +462,6 @@ function AdminTab({ athleteId, toast, athletes, onRefresh, onSwitch }) {
       toast.show("Program sent successfully!", "success");
     } catch(err) { toast.show("Failed to send: " + err.message, "error"); }
     setSending(false);
-  }
-
-  async function handleExport() {
-    setExporting(true);
-    try {
-      const url = `${API_BASE}/athletes/${athleteId}/export-xlsx`;
-      const resp = await fetch(url);
-      if (!resp.ok) throw new Error("Export failed");
-      const blob = await resp.blob();
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      const athlete = athletes?.find(a => a.id === athleteId);
-      const name = athlete ? athlete.name.replace(/\s+/g, "_") : "athlete";
-      a.download = `${name}_program.xlsx`;
-      a.click();
-      URL.revokeObjectURL(a.href);
-      toast.show("Export downloaded", "success");
-    } catch(err) { toast.show(err.message, "error"); }
-    setExporting(false);
   }
 
   const sfSmtp = (k, v) => { setSmtpErrors(p => ({...p, [k]: null})); setSmtp(p => ({...p, [k]: v})); };
@@ -592,23 +594,6 @@ function AdminTab({ athleteId, toast, athletes, onRefresh, onSwitch }) {
         })()}
       </div>
 
-      {/* ── Export Section ── */}
-      <div className="card" style={{marginBottom: 24}}>
-        <div className="card-header">
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <Icon name="download" size={18} color="var(--accent)"/>
-            <div className="card-title">Export Athlete Program</div>
-          </div>
-        </div>
-        <p style={{fontSize:13,color:"var(--text2)",marginBottom:16}}>
-          Download a full program spreadsheet for <strong style={{color:"var(--text)"}}>{currentAthlete?.name || "the current athlete"}</strong> including workouts, meals, supplements, and food swaps.
-        </p>
-        <button className="btn btn-primary" onClick={handleExport} disabled={exporting}>
-          {exporting ? <Spinner/> : <Icon name="download" size={14}/>}
-          {exporting ? "Exporting…" : "Download Excel Report"}
-        </button>
-      </div>
-
       {/* ── Send Program Section ── */}
       <div className="card" style={{marginBottom: 24}}>
         <div className="card-header">
@@ -653,7 +638,7 @@ function AdminTab({ athleteId, toast, athletes, onRefresh, onSwitch }) {
         <div style={{fontSize:13,color:"var(--text2)",lineHeight:1.7}}>
           <p style={{marginBottom:10}}>To import athlete data from a Google Sheet:</p>
           <ol style={{paddingLeft:20,display:"flex",flexDirection:"column",gap:6}}>
-            <li>Export the athlete program using the button above.</li>
+            <li>Download the athlete program using the <Icon name="download" size={11}/> button in the Manage Athletes panel.</li>
             <li>Open <a href="https://sheets.google.com" target="_blank" rel="noreferrer" style={{color:"var(--accent)"}}>Google Sheets</a> and create a new spreadsheet.</li>
             <li>Go to <strong style={{color:"var(--text)"}}>File → Import</strong> and upload the downloaded <code style={{background:"var(--surface2)",padding:"1px 5px",borderRadius:4,fontSize:12}}>.xlsx</code> file.</li>
             <li>Choose <strong style={{color:"var(--text)"}}>Replace spreadsheet</strong> and click Import.</li>

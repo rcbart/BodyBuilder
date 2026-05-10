@@ -447,7 +447,8 @@ def init_db():
     )""")
     # Migrate old exercise columns
     for col, defval in [("muscle_group","''"), ("rep_range","''"), ("rir","2"),
-                        ("tempo","''"), ("intensifiers","''"), ("image_url","''")]:
+                        ("tempo","''"), ("intensifiers","''"), ("image_url","''"),
+                        ("warmup_instructions","''")]:
         if not _col_exists(conn, "workout_exercises", col):
             c.execute(f"ALTER TABLE workout_exercises ADD COLUMN {col} TEXT DEFAULT {defval}")
     # Migrate set_type 'main' → 'working'
@@ -457,6 +458,8 @@ def init_db():
         c.execute("ALTER TABLE athletes ADD COLUMN units TEXT DEFAULT 'metric'")
     if not _col_exists(conn, "athletes", "status"):
         c.execute("ALTER TABLE athletes ADD COLUMN status TEXT DEFAULT 'active'")
+    if not _col_exists(conn, "workout_plans", "warmup_instructions"):
+        c.execute("ALTER TABLE workout_plans ADD COLUMN warmup_instructions TEXT DEFAULT ''")
 
     # ── supplements ──
     c.execute("""CREATE TABLE IF NOT EXISTS supplements (
@@ -938,6 +941,7 @@ class WorkoutPlanModel(BaseModel):
     start_date: Optional[str] = ""
     end_date: Optional[str] = ""
     notes: Optional[str] = ""
+    warmup_instructions: Optional[str] = ""
     sort_order: Optional[int] = 0
     @field_validator("title")
     @classmethod
@@ -945,7 +949,7 @@ class WorkoutPlanModel(BaseModel):
         if not v or not v.strip(): raise ValueError("Title required")
         if len(v)>100: raise ValueError("Max 100 chars")
         return v.strip()
-    @field_validator("notes")
+    @field_validator("notes", "warmup_instructions")
     @classmethod
     def notes_v(cls, v):
         v = (v or "").strip()
@@ -994,6 +998,7 @@ class WorkoutExerciseModel(BaseModel):
     tempo: Optional[str] = ""
     intensifiers: Optional[str] = ""
     exercise_notes: Optional[str] = ""
+    warmup_instructions: Optional[str] = ""
     image_url: Optional[str] = ""
     sort_order: Optional[int] = 0
 
@@ -1047,8 +1052,8 @@ class WorkoutExerciseModel(BaseModel):
             if is_cardio:
                 # Validate cardio-specific fields
                 ct = s.get("cardio_type", "")
-                if ct and len(str(ct)) > 100:
-                    raise ValueError(f"Set {i+1} cardio_type too long (max 100)")
+                if ct and len(str(ct)) > 500:
+                    raise ValueError(f"Set {i+1} cardio_type too long (max 500)")
                 for fld in ("duration_hours", "duration_minutes"):
                     val = s.get(fld)
                     if val is not None:
@@ -1097,10 +1102,10 @@ class WorkoutExerciseModel(BaseModel):
                         if "out of range" in str(e): raise
                         raise ValueError(f"Set {i+1} reps must be an integer")
         return v
-    @field_validator("rep_range","tempo","intensifiers","exercise_notes","muscle_group")
+    @field_validator("rep_range","tempo","intensifiers","exercise_notes","warmup_instructions","muscle_group")
     @classmethod
     def ex_str_v(cls, v):
-        if v and len(v) > 500: raise ValueError("Field exceeds max length")
+        if v and len(v) > 1000: raise ValueError("Field exceeds max length")
         return v or ""
 
 
@@ -1773,18 +1778,18 @@ def list_workout_plans(athlete_id: int):
 @app.post("/api/athletes/{athlete_id}/workout-plans")
 def create_workout_plan(athlete_id: int, body: WorkoutPlanModel):
     conn = get_db()
-    cur = conn.execute("""INSERT INTO workout_plans (athlete_id,title,start_date,end_date,notes,sort_order)
-        VALUES (?,?,?,?,?,?)""",
-        (athlete_id,body.title,body.start_date,body.end_date,body.notes,body.sort_order))
+    cur = conn.execute("""INSERT INTO workout_plans (athlete_id,title,start_date,end_date,notes,warmup_instructions,sort_order)
+        VALUES (?,?,?,?,?,?,?)""",
+        (athlete_id,body.title,body.start_date,body.end_date,body.notes,body.warmup_instructions,body.sort_order))
     pid = cur.lastrowid; conn.commit()
     result = _load_plan(conn, pid); conn.close(); return result
 
 @app.put("/api/athletes/{athlete_id}/workout-plans/{plan_id}")
 def update_workout_plan(athlete_id: int, plan_id: int, body: WorkoutPlanModel):
     conn = get_db()
-    conn.execute("""UPDATE workout_plans SET title=?,start_date=?,end_date=?,notes=?,sort_order=?
+    conn.execute("""UPDATE workout_plans SET title=?,start_date=?,end_date=?,notes=?,warmup_instructions=?,sort_order=?
         WHERE id=? AND athlete_id=?""",
-        (body.title,body.start_date,body.end_date,body.notes,body.sort_order,plan_id,athlete_id))
+        (body.title,body.start_date,body.end_date,body.notes,body.warmup_instructions,body.sort_order,plan_id,athlete_id))
     conn.commit()
     result = _load_plan(conn, plan_id); conn.close(); return result
 
@@ -1861,12 +1866,12 @@ def clone_session(session_id: int, body: WorkoutSessionModel):
     for ex in src_exs:
         conn.execute(
             """INSERT INTO workout_exercises
-               (session_id,name,muscle_group,set_type,sets_json,rep_range,rir,tempo,intensifiers,exercise_notes,image_url,sort_order)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+               (session_id,name,muscle_group,set_type,sets_json,rep_range,rir,tempo,intensifiers,exercise_notes,warmup_instructions,image_url,sort_order)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (new_sid, ex["name"], ex["muscle_group"], ex["set_type"],
              ex["sets_json"], ex["rep_range"], ex["rir"], ex["tempo"],
-             ex["intensifiers"], ex["exercise_notes"], ex.get("image_url",""),
-             ex["sort_order"]))
+             ex["intensifiers"], ex["exercise_notes"], ex.get("warmup_instructions",""),
+             ex.get("image_url",""), ex["sort_order"]))
     conn.commit()
     # Return the full plan so the UI can refresh
     plan_row = conn.execute("SELECT plan_id FROM workout_sessions WHERE id=?", (new_sid,)).fetchone()
@@ -1902,10 +1907,10 @@ def create_exercise(body: WorkoutExerciseModel):
     conn = get_db()
     cur = conn.execute(
         """INSERT INTO workout_exercises
-           (session_id,name,muscle_group,set_type,sets_json,rep_range,rir,tempo,intensifiers,exercise_notes,image_url,sort_order)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+           (session_id,name,muscle_group,set_type,sets_json,rep_range,rir,tempo,intensifiers,exercise_notes,warmup_instructions,image_url,sort_order)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (body.session_id,body.name,body.muscle_group,body.set_type,json.dumps(body.sets_json),
-         body.rep_range,body.rir,body.tempo,body.intensifiers,body.exercise_notes,body.image_url,body.sort_order))
+         body.rep_range,body.rir,body.tempo,body.intensifiers,body.exercise_notes,body.warmup_instructions,body.image_url,body.sort_order))
     eid = cur.lastrowid; conn.commit()
     row = conn.execute("SELECT * FROM workout_exercises WHERE id=?", (eid,)).fetchone()
     e = dict(row); e["sets_json"] = json.loads(e.get("sets_json") or "[]")
@@ -1921,9 +1926,9 @@ def update_exercise(exercise_id: int, body: WorkoutExerciseModel):
         raise HTTPException(403, "Exercise does not belong to that session")
     conn.execute(
         """UPDATE workout_exercises SET session_id=?,name=?,muscle_group=?,set_type=?,sets_json=?,
-           rep_range=?,rir=?,tempo=?,intensifiers=?,exercise_notes=?,image_url=?,sort_order=? WHERE id=?""",
+           rep_range=?,rir=?,tempo=?,intensifiers=?,exercise_notes=?,warmup_instructions=?,image_url=?,sort_order=? WHERE id=?""",
         (body.session_id,body.name,body.muscle_group,body.set_type,json.dumps(body.sets_json),
-         body.rep_range,body.rir,body.tempo,body.intensifiers,body.exercise_notes,body.image_url,body.sort_order,exercise_id))
+         body.rep_range,body.rir,body.tempo,body.intensifiers,body.exercise_notes,body.warmup_instructions,body.image_url,body.sort_order,exercise_id))
     conn.commit()
     row = conn.execute("SELECT * FROM workout_exercises WHERE id=?", (exercise_id,)).fetchone()
     e = dict(row); e["sets_json"] = json.loads(e.get("sets_json") or "[]")
@@ -1985,7 +1990,7 @@ def test_smtp():
 
 # ─── Excel Export ─────────────────────────────────────────────────────────────
 
-def _build_workbook(athlete_id: int):
+def _build_workbook(athlete_id: int, plan_id: int = None):
     try:
         from openpyxl import Workbook
         from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -2000,7 +2005,10 @@ def _build_workbook(athlete_id: int):
     mp_row = conn.execute("SELECT * FROM meal_plans WHERE athlete_id=?", (athlete_id,)).fetchone()
     mp = dict(mp_row) if mp_row else {}
     foods = [dict(r) for r in conn.execute("SELECT * FROM nutrition_foods WHERE athlete_id=? ORDER BY name", (athlete_id,)).fetchall()]
-    plan_ids = conn.execute("SELECT id FROM workout_plans WHERE athlete_id=? ORDER BY sort_order, title", (athlete_id,)).fetchall()
+    if plan_id is not None:
+        plan_ids = conn.execute("SELECT id FROM workout_plans WHERE athlete_id=? AND id=?", (athlete_id, plan_id)).fetchall()
+    else:
+        plan_ids = conn.execute("SELECT id FROM workout_plans WHERE athlete_id=? ORDER BY sort_order, title", (athlete_id,)).fetchall()
     plans = [_load_plan(conn, r["id"]) for r in plan_ids]
     dc_row = conn.execute(
         "SELECT additional_calories, multiplier FROM activity_calories WHERE athlete_id=? AND level=?",
@@ -2026,6 +2034,7 @@ def _build_workbook(athlete_id: int):
     BORDER    = Border(left=thin, right=thin, top=thin, bottom=thin)
     CENTER    = Alignment(horizontal="center", vertical="center")
     LEFT      = Alignment(horizontal="left", vertical="center")
+    WRAP_LEFT = Alignment(horizontal="left", vertical="top", wrap_text=True)
 
     def set_hdr(ws, row, col, val, fill=HDR_FILL, font=HDR_FONT):
         c = ws.cell(row=row, column=col, value=val)
@@ -2140,23 +2149,77 @@ def _build_workbook(athlete_id: int):
 
     # ── Sheets 5+: One sheet per workout plan ──
     DOW = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
+    NCOLS = 8  # Exercise | Warm-up Sets | Main Sets | Rep Range | RIR | Tempo | Intensifiers | Notes
+
+    WARM_FILL = PatternFill("solid", fgColor="D6E4FF")   # light blue — warm-up highlight
+    MAIN_FILL = PatternFill("solid", fgColor="D6F5E3")   # light green — main sets highlight
+    NOTE_FILL = PatternFill("solid", fgColor="F5F5F0")   # off-white — info rows
+
+    def _merge_row(ws, row, ncols, value, font=None, fill=None, align=None):
+        ws.merge_cells(f"A{row}:{get_column_letter(ncols)}{row}")
+        c = ws.cell(row=row, column=1, value=value)
+        if font:  c.font  = font
+        if fill:  c.fill  = fill
+        if align: c.alignment = align
+        c.border = BORDER
+
+    def _info_block(ws, row, label, text, ncols):
+        """Write a labelled text block spanning all columns. Returns next row."""
+        if not text: return row
+        _merge_row(ws, row, ncols, label,
+                   font=Font(bold=True, color="FFFFFF", size=10), fill=SUBHDR, align=LEFT)
+        row += 1
+        # Each paragraph as its own wrapped row; Excel auto-sizes height
+        for line in (text or "").splitlines() or [""]:
+            _merge_row(ws, row, ncols, line, font=BODY_FONT, fill=NOTE_FILL, align=WRAP_LEFT)
+            # Height hint: ~15pt per wrapped line estimate; let Excel expand as needed
+            ws.row_dimensions[row].height = max(30, min(len(line) // 6 * 15, 120))
+            row += 1
+        return row + 1  # blank gap
+
+    TRAINING_KEY = (
+        "RIR (Reps In Reserve): The number of reps you could still perform before reaching failure. "
+        "RIR 0 = failure, RIR 1 = 1 rep left, RIR 2 = 2 reps left.\n"
+        "Tempo (Eccentric-Pause-Concentric-Top Pause): e.g. 3-1-0-1 means 3 sec lower, 1 sec pause at bottom, "
+        "0 sec lift, 1 sec pause at top. Default tempo is 3-1-0-1 unless otherwise stated.\n"
+        "RPE (Rate of Perceived Exertion): Scale 1–10. RPE 10 = maximum effort, RPE 7 = moderate challenge."
+    )
+
     for pi, plan in enumerate(plans):
         sheet_name = f"Workout - {plan['title']}"[:31]
         wsw = wb.create_sheet(sheet_name)
-        wsw.row_dimensions[1].height = 26
-        wsw.merge_cells("A1:F1")
-        c = wsw["A1"]; c.value = f"Workout Plan: {plan['title']}"
-        c.font = HDR_FONT; c.fill = ACCENT; c.alignment = CENTER
+        wsw.row_dimensions[1].height = 28
 
-        # Plan metadata
-        meta = [("Start Date", plan.get("start_date","")), ("End Date", plan.get("end_date","")),
-                ("Athlete", ath["name"]), ("Notes", plan.get("notes",""))]
-        for ri, (k, v) in enumerate(meta, 2):
-            set_cell(wsw, ri, 1, k, bold=True); wsw.merge_cells(f"B{ri}:F{ri}")
-            set_cell(wsw, ri, 2, v)
+        # ── Title row ──
+        _merge_row(wsw, 1, NCOLS, f"Workout Plan: {plan['title']}",
+                   font=Font(bold=True, color="FFFFFF", size=14), fill=ACCENT, align=CENTER)
 
-        # Sessions grouped by day of week
-        cur_row = len(meta) + 3
+        # ── Plan metadata ──
+        cur_row = 2
+        meta_rows = [
+            ("Athlete", ath["name"]),
+            ("Start Date", plan.get("start_date","")),
+            ("End Date",   plan.get("end_date","")),
+        ]
+        for k, v in meta_rows:
+            set_cell(wsw, cur_row, 1, k, bold=True)
+            wsw.merge_cells(f"B{cur_row}:{get_column_letter(NCOLS)}{cur_row}")
+            set_cell(wsw, cur_row, 2, v)
+            cur_row += 1
+        cur_row += 1
+
+        # ── Training Instructions (plan notes) ──
+        cur_row = _info_block(wsw, cur_row, "📋  Training Instructions",
+                              plan.get("notes",""), NCOLS)
+
+        # ── Warm-up Instructions ──
+        cur_row = _info_block(wsw, cur_row, "🔥  Warm-Up Instructions",
+                              plan.get("warmup_instructions",""), NCOLS)
+
+        # ── Training Key ──
+        cur_row = _info_block(wsw, cur_row, "📖  Training Key", TRAINING_KEY, NCOLS)
+
+        # ── Sessions grouped by day of week ──
         sessions_by_dow = {d: [s for s in plan["sessions"] if s["day_of_week"]==d] for d in DOW}
 
         for day in DOW:
@@ -2164,48 +2227,136 @@ def _build_workbook(athlete_id: int):
             if not day_sessions: continue
 
             # Day header
-            wsw.merge_cells(f"A{cur_row}:F{cur_row}")
-            c = wsw.cell(row=cur_row, column=1, value=f"📅 {day}")
-            c.font = Font(bold=True, color="FFFFFF", size=11); c.fill = SUBHDR; c.alignment = LEFT
+            _merge_row(wsw, cur_row, NCOLS, f"📅  {day}",
+                       font=Font(bold=True, color="FFFFFF", size=11), fill=SUBHDR, align=LEFT)
             cur_row += 1
 
             for sess in day_sessions:
-                # Session header
-                wsw.merge_cells(f"A{cur_row}:F{cur_row}")
+                # Session title
                 title = sess.get("session_title") or sess.get("day_of_week","")
                 muscles = ", ".join(sess.get("muscle_groups",[]))
-                c = wsw.cell(row=cur_row, column=1, value=f"{title} — {muscles}" if muscles else title)
-                c.font = Font(bold=True, color="1A1D27", size=10); c.fill = PatternFill("solid", fgColor="E8EAF0")
-                c.alignment = LEFT; cur_row += 1
+                _merge_row(wsw, cur_row, NCOLS,
+                           f"{title} — {muscles}" if muscles else title,
+                           font=Font(bold=True, color="1A1D27", size=10),
+                           fill=PatternFill("solid", fgColor="E8EAF0"), align=LEFT)
+                cur_row += 1
 
                 if sess.get("session_notes"):
-                    wsw.merge_cells(f"A{cur_row}:F{cur_row}")
-                    set_cell(wsw, cur_row, 1, f"Notes: {sess['session_notes']}")
+                    _merge_row(wsw, cur_row, NCOLS, f"Session notes: {sess['session_notes']}",
+                               font=BODY_FONT, fill=NOTE_FILL, align=WRAP_LEFT)
+                    wsw.row_dimensions[cur_row].height = max(30, min(len(sess['session_notes']) // 6 * 15, 120))
                     cur_row += 1
 
                 if sess.get("exercises"):
-                    for ci, h in enumerate(["Exercise","Set Type","Set #","Weight (kg)","Reps","Notes"], 1):
+                    # Column headers
+                    col_hdrs = ["Exercise", "Warm-up Sets", "Main Sets",
+                                "Rep Range", "RIR", "Tempo", "Intensifiers", "Training Instructions"]
+                    for ci, h in enumerate(col_hdrs, 1):
                         set_hdr(wsw, cur_row, ci, h, SUBHDR, SUBF)
                     cur_row += 1
+
                     for ex in sess["exercises"]:
-                        sets = ex.get("sets_json",[])
-                        if not sets: sets = [{}]
-                        for si, s in enumerate(sets):
-                            if si == 0:
-                                set_cell(wsw, cur_row, 1, ex["name"], bold=True)
-                                set_cell(wsw, cur_row, 2, ex["set_type"].replace("_"," ").title())
-                                set_cell(wsw, cur_row, 6, ex.get("exercise_notes",""))
-                            else:
-                                set_cell(wsw, cur_row, 1, ""); set_cell(wsw, cur_row, 2, "")
-                                set_cell(wsw, cur_row, 6, "")
-                            set_cell(wsw, cur_row, 3, s.get("set_number", si+1))
-                            set_cell(wsw, cur_row, 4, s.get("weight", 0))
-                            set_cell(wsw, cur_row, 5, s.get("reps", 0))
+                        sets = ex.get("sets_json") or []
+                        # Skip cardio (has cardio_type key)
+                        if sets and sets[0].get("cardio_type") is not None:
+                            # Render cardio as a single merged note row
+                            cd = sets[0]
+                            hrs = cd.get("duration_hours",0) or 0
+                            mins = cd.get("duration_minutes",0) or 0
+                            dur = f"{hrs}h {mins}m" if hrs else f"{mins} min"
+                            rpe = f"  RPE {cd['rpe']}" if cd.get("rpe") is not None else ""
+                            hr = f"  HR {cd.get('hr_min')}–{cd.get('hr_max')} bpm" if cd.get("hr_min") and cd.get("hr_max") else ""
+                            _merge_row(wsw, cur_row, NCOLS,
+                                       f"🏃 {ex['name']} ({cd.get('cardio_type','')}) — {dur}{rpe}{hr}",
+                                       font=BODY_FONT, fill=NOTE_FILL, align=LEFT)
+                            cur_row += 1
+                            continue
+
+                        # Partition sets by type
+                        w_sets = [s for s in sets if (s.get("type") or "M") == "W"]
+                        m_sets = [s for s in sets if (s.get("type") or "M") == "M"]
+                        i_sets = [s for s in sets if (s.get("type") or "M") == "I"]
+
+                        wu_count = len(w_sets)
+                        main_count = len(m_sets)
+
+                        # Rep range: "WU 10/8 | Main 8-12" or just "8-12"
+                        wu_reps = "/".join(
+                            str(s.get("rep_range") or s.get("reps","")).strip() or "—"
+                            for s in w_sets
+                        ) if w_sets else ""
+                        # Main rep range: prefer exercise rep_range, else join set reps
+                        main_reps = (ex.get("rep_range") or "").strip()
+                        if not main_reps and m_sets:
+                            main_reps = "/".join(str(s.get("reps","")) for s in m_sets)
+                        rep_range_str = ""
+                        if wu_reps and main_reps:
+                            rep_range_str = f"WU {wu_reps} | Main {main_reps}"
+                        elif wu_reps:
+                            rep_range_str = f"WU {wu_reps}"
+                        elif main_reps:
+                            rep_range_str = main_reps
+
+                        # RIR: exercise default, or 0
+                        rir_val = ex.get("rir")
+                        rir_str = str(rir_val) if rir_val is not None else "0"
+
+                        # Tempo: exercise default, or "3-1-0-1"
+                        tempo_str = (ex.get("tempo") or "").strip() or "3-1-0-1"
+
+                        # Intensifiers: exercise intensifiers text + notes from I-type sets
+                        intensifier_parts = []
+                        if ex.get("intensifiers"):
+                            intensifier_parts.append(ex["intensifiers"].strip())
+                        for s in i_sets:
+                            if s.get("notes"):
+                                intensifier_parts.append(s["notes"].strip())
+                        intensifiers_str = "; ".join(p for p in intensifier_parts if p)
+
+                        # Exercise row
+                        notes_str   = (ex.get("exercise_notes") or "").strip()
+                        wu_instr    = (ex.get("warmup_instructions") or "").strip()
+                        set_cell(wsw, cur_row, 1, ex["name"], bold=True)
+                        set_cell(wsw, cur_row, 2, wu_count   if wu_count   else "—", align=CENTER)
+                        set_cell(wsw, cur_row, 3, main_count if main_count else "—", align=CENTER)
+                        set_cell(wsw, cur_row, 4, rep_range_str, align=WRAP_LEFT)
+                        set_cell(wsw, cur_row, 5, rir_str,    align=CENTER)
+                        set_cell(wsw, cur_row, 6, tempo_str,  align=CENTER)
+                        set_cell(wsw, cur_row, 7, intensifiers_str, align=WRAP_LEFT)
+                        set_cell(wsw, cur_row, 8, notes_str,  align=WRAP_LEFT)
+
+                        # Highlight warm-up / main set count cells
+                        if wu_count:
+                            wsw.cell(row=cur_row, column=2).fill = WARM_FILL
+                        if main_count:
+                            wsw.cell(row=cur_row, column=3).fill = MAIN_FILL
+
+                        cur_row += 1
+
+                        # Warm Up Sets sub-row (only when warmup_instructions exist)
+                        if wu_instr:
+                            set_cell(wsw, cur_row, 1, "Warm Up Sets",
+                                     bold=True, fill=WARM_FILL)
+                            wsw.merge_cells(f"B{cur_row}:{get_column_letter(NCOLS)}{cur_row}")
+                            c_wu = wsw.cell(row=cur_row, column=2, value=wu_instr)
+                            c_wu.font      = BODY_FONT
+                            c_wu.alignment = WRAP_LEFT
+                            c_wu.border    = BORDER
+                            c_wu.fill      = WARM_FILL
+                            wsw.row_dimensions[cur_row].height = max(30, min(len(wu_instr) // 8 * 15, 120))
                             cur_row += 1
 
-                cur_row += 1  # space between sessions
+                cur_row += 1  # spacer row between sessions
 
         auto_width(wsw)
+        # Fix narrow number columns
+        for col_idx in [2, 3, 5, 6]:
+            wsw.column_dimensions[get_column_letter(col_idx)].width = 14
+        # Set generous widths for text-heavy columns so wrap is meaningful
+        wsw.column_dimensions["A"].width = max(wsw.column_dimensions["A"].width, 30)  # Exercise
+        wsw.column_dimensions["D"].width = max(wsw.column_dimensions["D"].width, 22)  # Rep Range
+        wsw.column_dimensions["G"].width = max(wsw.column_dimensions["G"].width, 30)  # Intensifiers
+        wsw.column_dimensions["H"].width = 55                                          # Notes (wide)
 
     return wb
 
@@ -2216,6 +2367,22 @@ def export_xlsx(athlete_id: int):
     ath = get_athlete(athlete_id)
     safe_name = "".join(c for c in ath["name"] if c.isalnum() or c in " _-").strip() or "athlete"
     filename = f"BodyBuilder_{safe_name}.xlsx"
+    buf = io.BytesIO()
+    wb.save(buf); buf.seek(0)
+    return StreamingResponse(buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                             headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+@app.get("/api/athletes/{athlete_id}/workout-plans/{plan_id}/export-xlsx")
+def export_plan_xlsx(athlete_id: int, plan_id: int):
+    wb = _build_workbook(athlete_id, plan_id=plan_id)
+    conn = get_db()
+    plan_row = conn.execute("SELECT title FROM workout_plans WHERE id=? AND athlete_id=?", (plan_id, athlete_id)).fetchone()
+    conn.close()
+    if not plan_row:
+        raise HTTPException(404, "Plan not found")
+    safe_title = "".join(c for c in plan_row["title"] if c.isalnum() or c in " _-").strip() or "plan"
+    filename = f"{safe_title}_workout.xlsx"
     buf = io.BytesIO()
     wb.save(buf); buf.seek(0)
     return StreamingResponse(buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

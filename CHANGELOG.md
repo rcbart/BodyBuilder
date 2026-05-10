@@ -1,3 +1,39 @@
+## v1.2.0 — May 10, 2026
+
+### Workout UX, Athlete Units, Exercise Library & Plan Export
+
+**`frontend/js/workout-tab.js`**
+- Exercise dialog: rep range column removed from the sets table (header, input, and plan-view display)
+- Exercise dialog: weight and reps columns now use `1fr` each so they expand to fill available width
+- Exercise dialog: new sets now open fully expanded by default; existing sets also pre-expanded when editing
+- Exercise dialog: added ✕ close button to dialog title bar
+- Exercise dialog: cardio type changed from a single `<select>` to a multi-select chip UI — multiple activity types can be selected and are stored as a comma-separated string
+- Exercise dialog: intensifiers textarea removed; set notes label changes to "SET NOTES / INTENSIFIER" when set type is I
+- Exercise dialog: default tempo changed from blank to `3-1-0-1`; "Default Tempo" label renamed to "Tempo"
+- Exercise dialog: exercise library expanded from ~90 to 250+ exercises across all muscle groups
+- Exercise dialog: library picker replaced from a button grid to a grouped `<select>` dropdown with `<optgroup>` per muscle group, filterable by name and muscle group
+- Workout plan view: rep range column removed from the sets table in the exercise list
+- Workout plan view: tempo column now falls back to `3-1-0-1` instead of `—` when no per-set or exercise tempo is set
+- Workout plan view: first plan now auto-expanded on load
+- Workout plan view: added "Save Plan" Excel export button per plan, triggering `GET /api/athletes/{id}/workout-plans/{id}/export-xlsx`
+
+**`frontend/js/athlete-tab.js`**
+- `AthleteFormDialog` (create/edit): added Metric / Imperial units toggle in the dialog title bar
+- Height field switches between a single cm input (metric) and paired ft + in inputs (imperial)
+- Weight field label and value convert between kg and lbs based on selected units; stored internally as kg
+- `units` included in save payload so the workout planner immediately uses the correct unit system
+
+**`backend/main.py`**
+- `WorkoutPlanModel`: added `warmup_instructions` field (max 2000 chars, validated) with schema migration (`ALTER TABLE` on startup if column absent)
+- `WorkoutExerciseModel`: added `warmup_instructions` field (max 1000 chars); included in INSERT and UPDATE queries
+- `WorkoutExerciseModel`: `cardio_type` max length raised from 100 to 500 chars to accommodate multi-select comma-joined strings
+- Added `_build_workbook()` helper and `GET /api/athletes/{athlete_id}/workout-plans/{plan_id}/export-xlsx` endpoint — generates a formatted `.xlsx` file with plan metadata, warm-up instructions, and a session-by-session exercise breakdown including sets, reps, weight, RIR, tempo, and notes
+
+**`VERSION`**
+- Bumped `1.1.4` → `1.2.0`
+
+---
+
 ## v1.1.4 — May 6, 2026
 
 ### Backup & Restore — Checksum fix

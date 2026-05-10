@@ -412,16 +412,42 @@ function AthleteSettingsTab({ athleteId, toast, onAthleteUpdated }) {
 // ── Athlete Form Dialog (Create / Edit) ────────────────────────────────────────
 function AthleteFormDialog({ athlete, onSave, onClose }) {
   const isNew = !athlete;
+  const initUnits = athlete?.units || "metric";
   const [f, setF] = useState({
     name: athlete?.name || "", email: athlete?.email || "",
     birthdate: athlete?.birthdate || "", sex: athlete?.sex || "male",
     height_cm: athlete?.height_cm || 175, weight_kg: athlete?.weight_kg || 75,
     phase: athlete?.phase || "maintain",
     status: athlete?.status || "active",
+    units: initUnits,
   });
   const [e, setE] = useState({});
   const [saving, setSaving] = useState(false);
+  // Imperial height scratch state (ft + in)
+  const initHt = initUnits === "imperial" ? cmToFtIn(athlete?.height_cm || 175) : { ft: 5, inches: 9 };
+  const [htFt, setHtFt] = useState(initHt.ft);
+  const [htIn, setHtIn] = useState(initHt.inches);
+
   const sf = (k, v) => { setE(p => ({ ...p, [k]: null })); setF(p => ({ ...p, [k]: v })); };
+
+  function switchUnits(newUnits) {
+    if (newUnits === "imperial") {
+      const { ft, inches } = cmToFtIn(f.height_cm);
+      setHtFt(ft); setHtIn(inches);
+    }
+    sf("units", newUnits);
+  }
+
+  function onHtFtChange(val) {
+    const ft = Math.max(0, Math.min(8, +val || 0));
+    setHtFt(ft);
+    sf("height_cm", ftInToCm(ft, htIn));
+  }
+  function onHtInChange(val) {
+    const inches = Math.max(0, Math.min(11, +val || 0));
+    setHtIn(inches);
+    sf("height_cm", ftInToCm(htFt, inches));
+  }
 
   function validate_() {
     const err = {};
@@ -445,14 +471,43 @@ function AthleteFormDialog({ athlete, onSave, onClose }) {
   return (
     <div className="overlay" style={{zIndex:150}}>
       <div className="dialog dialog-md">
-        <div className="dialog-title"><Icon name="user" size={20}/>{isNew?"New Athlete":"Edit Athlete"}</div>
+        <div className="dialog-title" style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <span style={{display:"flex",alignItems:"center",gap:8}}><Icon name="user" size={20}/>{isNew?"New Athlete":"Edit Athlete"}</span>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:12,color:"var(--muted)"}}>Units:</span>
+            <ToggleGroup
+              options={[{value:"metric",label:"Metric"},{value:"imperial",label:"Imperial"}]}
+              value={f.units}
+              onChange={switchUnits}
+            />
+          </div>
+        </div>
         <div className="form-grid">
           <FF label="Full Name *" error={e.name}><input value={f.name} className={e.name?"err":""} maxLength={100} onChange={ev=>sf("name",ev.target.value)} autoFocus/></FF>
           <FF label="Email" error={e.email}><input type="email" value={f.email} className={e.email?"err":""} onChange={ev=>sf("email",ev.target.value)} placeholder="athlete@email.com"/></FF>
           <FF label="Date of Birth"><input type="date" value={f.birthdate} onChange={ev=>sf("birthdate",ev.target.value)}/></FF>
           <FF label="Sex"><ToggleGroup options={[{value:"male",label:"Male"},{value:"female",label:"Female"}]} value={f.sex} onChange={v=>sf("sex",v)}/></FF>
-          <FF label="Height (cm) *" error={e.height_cm}><input type="number" min="50" max="300" value={f.height_cm} className={e.height_cm?"err":""} onChange={ev=>sf("height_cm",ev.target.value)}/></FF>
-          <FF label="Weight (kg) *" error={e.weight_kg}><input type="number" min="10" max="500" step="0.1" value={f.weight_kg} className={e.weight_kg?"err":""} onChange={ev=>sf("weight_kg",ev.target.value)}/></FF>
+
+          {f.units === "imperial" ? (
+            <FF label="Height (ft / in) *" error={e.height_cm}>
+              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                <input type="number" min="1" max="8" value={htFt} className={e.height_cm?"err":""} onChange={ev=>onHtFtChange(ev.target.value)} style={{width:56}} placeholder="ft"/>
+                <span style={{color:"var(--muted)",fontSize:13}}>ft</span>
+                <input type="number" min="0" max="11" value={htIn} className={e.height_cm?"err":""} onChange={ev=>onHtInChange(ev.target.value)} style={{width:56}} placeholder="in"/>
+                <span style={{color:"var(--muted)",fontSize:13}}>in</span>
+              </div>
+            </FF>
+          ) : (
+            <FF label="Height (cm) *" error={e.height_cm}><input type="number" min="50" max="300" value={f.height_cm} className={e.height_cm?"err":""} onChange={ev=>sf("height_cm",ev.target.value)}/></FF>
+          )}
+
+          <FF label={`Weight (${wtLabel(f.units)}) *`} error={e.weight_kg}>
+            <input type="number" min={f.units==="imperial"?22:10} max={f.units==="imperial"?1100:500} step="0.1"
+              value={wtDisplay(f.weight_kg, f.units)}
+              className={e.weight_kg?"err":""}
+              onChange={ev=>sf("weight_kg", wtToKg(ev.target.value, f.units))}/>
+          </FF>
+
           <FF label="Phase" full>
             <ToggleGroup
               options={["cut","bulk","maintain","prep"].map(v=>({value:v,label:v.charAt(0).toUpperCase()+v.slice(1)}))}
