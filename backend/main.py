@@ -37,11 +37,23 @@ app.add_middleware(
 )
 
 BASE_DIR = Path(__file__).parent
-DB_PATH = str(BASE_DIR / "bodybuilder.db")
-FRONTEND_DIR = BASE_DIR.parent / "frontend"
+
+# ── Path overrides (set by app_launcher.py when running as a bundled .app) ───
+# BB_DATA_DIR     → where the database and exercise_images live (persistent)
+# BB_FRONTEND_DIR → where the React static files are (inside the bundle)
+# BB_VERSION_FILE → path to the VERSION text file (inside the bundle)
+#
+# When running from source (dev mode), none of these are set and the original
+# relative-path defaults are used unchanged.
+_DATA_DIR     = Path(os.environ.get("BB_DATA_DIR",     str(BASE_DIR)))
+_FRONTEND_ENV = os.environ.get("BB_FRONTEND_DIR")
+_VERSION_ENV  = os.environ.get("BB_VERSION_FILE")
+
+DB_PATH      = str(_DATA_DIR / "bodybuilder.db")
+FRONTEND_DIR = Path(_FRONTEND_ENV) if _FRONTEND_ENV else BASE_DIR.parent / "frontend"
 
 # ── Read version from repo-root VERSION file ──────────────────────────────────
-_VERSION_FILE = BASE_DIR.parent / "VERSION"
+_VERSION_FILE = Path(_VERSION_ENV) if _VERSION_ENV else BASE_DIR.parent / "VERSION"
 def _read_version_file() -> tuple[int, int, int]:
     try:
         parts = _VERSION_FILE.read_text().strip().split(".")
@@ -49,7 +61,7 @@ def _read_version_file() -> tuple[int, int, int]:
     except Exception:
         return 1, 0, 0
 APP_VERSION = _read_version_file()   # (major, minor, tiny)
-EXERCISE_IMAGES_DIR = BASE_DIR / "exercise_images"
+EXERCISE_IMAGES_DIR = _DATA_DIR / "exercise_images"
 EXERCISE_IMAGES_DIR.mkdir(exist_ok=True)
 
 # ── All exercises eligible for image seeding ──────────────────────────────────

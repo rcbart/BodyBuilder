@@ -154,3 +154,12 @@ Icon
 *~
 tempCodeRunnerFile.py
 DOCKER-COMPLETE.code-workspace
+
+# ── Claude / AI tooling ───────────────────────────────────────────────────────
+# Claude Code project settings and session data
+.claude/
+CLAUDE.md
+# Cowork skill packages (built locally, not part of source)
+*.skill
+# Any local AI-generated scratch files
+.ai/

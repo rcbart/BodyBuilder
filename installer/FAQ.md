@@ -10,6 +10,26 @@ This guide covers the most common problems you might run into and exactly how to
 
 ---
 
+### macOS says "BodyBuilder cannot be opened because it is from an unidentified developer"
+
+**What it looks like:** A dialog appears saying something like *"BodyBuilder cannot be opened because it is from an unidentified developer"* or *"Apple cannot check it for malicious software."*
+
+**What it means:** macOS requires apps sold through the Mac App Store to carry a paid Apple developer certificate. BodyBuilder is distributed directly (not through the App Store), so macOS shows this warning the very first time you open it. The app is safe — this is a one-time security prompt, not an infection warning.
+
+**How to fix it (one-time only):**
+
+1. Open **Finder** and go to your **Applications** folder, or wherever you saved the `BodyBuilder.dmg` and copied the app.
+2. Find **BodyBuilder.app**.
+3. **Right-click** it (or hold **Control** and click once).
+4. Choose **"Open"** from the menu that appears — **do not double-click**.
+5. A new dialog appears asking if you're sure. Click **"Open"**.
+
+BodyBuilder will launch normally. You only need to do this once — after that, double-clicking works like any other app.
+
+> **If the "Open" option doesn't appear in the menu:** Go to **System Settings → Privacy & Security**, scroll down, and look for a message about BodyBuilder being blocked. Click **"Open Anyway"**, then enter your Mac password if prompted.
+
+---
+
 ### The app won't open / I see "address already in use" in the Terminal
 
 **What it looks like:**
@@ -226,7 +246,11 @@ Look for the backup file you saved. It will have a name like `bb-backup-2026-05-
 
 ### Where is my data stored?
 
-All data is stored locally on this Mac in a file called `bodybuilder.db` inside the `backend` folder of the BodyBuilder application. Nothing is sent to the internet. No cloud account is required.
+All data is stored locally on this Mac in:
+```
+~/Library/Application Support/BodyBuilder/
+```
+This folder contains your database (`bodybuilder.db`) and any cached exercise images. It is never deleted when you update the app. Nothing is sent to the internet — no cloud account is required.
 
 ---
 
@@ -242,9 +266,13 @@ All athletes, workouts, meal plans, and settings will be restored exactly as the
 
 ### How do I completely uninstall BodyBuilder?
 
-1. Stop the server (`Ctrl+C` in Terminal or quit the Terminal window).
-2. Delete the entire `bodyBuilder` folder from your Mac.
-3. That's it — there are no system files, registries, or hidden folders to clean up.
+1. Quit BodyBuilder if it is running.
+2. Open **Finder → Applications** and drag **BodyBuilder** to the Trash.
+3. To also remove your data, open **Terminal** and run:
+   ```
+   rm -rf ~/Library/Application\ Support/BodyBuilder
+   ```
+   > ⚠️ This permanently deletes all your athletes, workouts, and meal plans. Back up first via **Admin → Back Up Now** if you want to keep your data.
 
 ---
 
