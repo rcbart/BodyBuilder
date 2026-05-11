@@ -67,7 +67,7 @@ const EXERCISE_LIBRARY = {
 const ALL_MUSCLE_GROUPS = Object.keys(EXERCISE_LIBRARY);
 
 // ── Exercise Dialog ────────────────────────────────────────────────────────────
-function ExerciseDialog({ exercise, sessionId, onSave, onClose, units }) {
+function ExerciseDialog({ exercise, sessionId, onSave, onClose, units, toast }) {
   units = units || "metric";
   const isNew = !exercise;
 
@@ -265,7 +265,7 @@ function ExerciseDialog({ exercise, sessionId, onSave, onClose, units }) {
         if (exercise) await apiPut(`/workout-exercises/${exercise.id}`, payload);
         else          await apiPost(`/workout-exercises`, payload);
         onSave(); onClose();
-      } catch(err) { setSaving(false); }
+      } catch(err) { toast?.show(err.message || "Failed to save exercise", "error"); setSaving(false); }
     } else {
       if (!validateStrength()) return;
       setSaving(true);
@@ -274,7 +274,7 @@ function ExerciseDialog({ exercise, sessionId, onSave, onClose, units }) {
         if (exercise) await apiPut(`/workout-exercises/${exercise.id}`, payload);
         else          await apiPost(`/workout-exercises`, payload);
         onSave(); onClose();
-      } catch(err) { setSaving(false); }
+      } catch(err) { toast?.show(err.message || "Failed to save exercise", "error"); setSaving(false); }
     }
   }
 
@@ -290,7 +290,7 @@ function ExerciseDialog({ exercise, sessionId, onSave, onClose, units }) {
       <div className="dialog dialog-xl" style={{maxHeight:"90vh",overflowY:"auto"}}>
         <div className="dialog-title" style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <span style={{display:"flex",alignItems:"center",gap:8}}><Icon name="dumbbell" size={20}/>{isNew?"Add Exercise":"Edit Exercise"}</span>
-          <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:"var(--muted)",padding:4,lineHeight:1,fontSize:18,fontWeight:700}} title="Close">✕</button>
+          <DialogCloseBtn onClose={onClose}/>
         </div>
 
         {/* ── Exercise Type Toggle ── */}
@@ -660,7 +660,10 @@ function ExerciseDialog({ exercise, sessionId, onSave, onClose, units }) {
         {showClearWeights && (
           <div className="overlay" style={{zIndex:200}}>
             <div className="dialog" style={{maxWidth:360}}>
-              <div className="dialog-title"><Icon name="refresh_ccw" size={18}/>Clear All Weights</div>
+              <div className="dialog-title" style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                <span style={{display:"flex",alignItems:"center",gap:8}}><Icon name="refresh_ccw" size={18}/>Clear All Weights</span>
+                <DialogCloseBtn onClose={()=>setShowClearWeights(false)}/>
+              </div>
               <p style={{fontSize:14,color:"var(--text2)",margin:"0 0 20px"}}>
                 Zero out the weight for all {f.sets_json.length} set{f.sets_json.length!==1?"s":""}. Reps and other fields are unchanged.
               </p>
@@ -714,7 +717,10 @@ function TemplatePickerDialog({ athleteId, onSelect, onClose }) {
   return (
     <div className="overlay" style={{zIndex:200}}>
       <div className="dialog dialog-md" style={{maxHeight:"80vh",display:"flex",flexDirection:"column"}}>
-        <div className="dialog-title"><Icon name="copy" size={20}/>Load Session Template</div>
+        <div className="dialog-title" style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <span style={{display:"flex",alignItems:"center",gap:8}}><Icon name="copy" size={20}/>Load Session Template</span>
+          <DialogCloseBtn onClose={onClose}/>
+        </div>
         <p style={{fontSize:13,color:"var(--text2)",margin:"0 0 14px"}}>
           Pick a previously saved session. Its exercises will be copied into your new session.
         </p>
@@ -770,7 +776,7 @@ function TemplatePickerDialog({ athleteId, onSelect, onClose }) {
 }
 
 // ── Session Dialog (create / edit + optional template) ─────────────────────────
-function SessionDialog({ session, planId, defaultDay, athleteId, onSave, onClose }) {
+function SessionDialog({ session, planId, defaultDay, athleteId, onSave, onClose, toast }) {
   const isNew = !session;
   const [f, setF] = useState({
     plan_id:       planId,
@@ -814,14 +820,15 @@ function SessionDialog({ session, planId, defaultDay, athleteId, onSave, onClose
         await apiPost(`/workout-sessions`, f);
         onSave(); onClose();
       }
-    } catch(err) { setSaving(false); }
+    } catch(err) { toast?.show(err.message || "Failed to save session", "error"); setSaving(false); }
   }
 
   return (
     <div className="overlay" style={{zIndex:150}}>
       <div className="dialog dialog-md">
-        <div className="dialog-title">
-          <Icon name="calendar" size={20}/>{isNew?"New Session":"Edit Session"}
+        <div className="dialog-title" style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <span style={{display:"flex",alignItems:"center",gap:8}}><Icon name="calendar" size={20}/>{isNew?"New Session":"Edit Session"}</span>
+          <DialogCloseBtn onClose={onClose}/>
         </div>
 
         {/* Template picker strip (new sessions only) */}
@@ -903,7 +910,7 @@ function SessionDialog({ session, planId, defaultDay, athleteId, onSave, onClose
 }
 
 // ── Workout Plan Form ──────────────────────────────────────────────────────────
-function WorkoutPlanFormDialog({ plan, athleteId, onSave, onClose }) {
+function WorkoutPlanFormDialog({ plan, athleteId, onSave, onClose, toast }) {
   const isNew = !plan;
   const [f, setF] = useState({
     athlete_id:           athleteId,
@@ -934,13 +941,16 @@ function WorkoutPlanFormDialog({ plan, athleteId, onSave, onClose }) {
       if (plan) await apiPut(`/athletes/${athleteId}/workout-plans/${plan.id}`, f);
       else      await apiPost(`/athletes/${athleteId}/workout-plans`, f);
       onSave(); onClose();
-    } catch(err) { setSaving(false); }
+    } catch(err) { toast?.show(err.message || "Failed to save plan", "error"); setSaving(false); }
   }
 
   return (
     <div className="overlay">
       <div className="dialog">
-        <div className="dialog-title"><Icon name="dumbbell" size={20}/>{isNew?"New Workout Plan":"Edit Plan"}</div>
+        <div className="dialog-title" style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <span style={{display:"flex",alignItems:"center",gap:8}}><Icon name="dumbbell" size={20}/>{isNew?"New Workout Plan":"Edit Plan"}</span>
+          <DialogCloseBtn onClose={onClose}/>
+        </div>
         <div className="form-grid" style={{marginBottom:14}}>
           <FF label="Plan Title *" error={e.title} full>
             <input value={f.title} className={e.title?"err":""} maxLength={100}
@@ -988,6 +998,7 @@ function WorkoutPlanTab({ athleteId, toast, units }) {
   const [showExForm, setShowExForm]     = useState(false);
   const [editEx, setEditEx]             = useState(null);
   const [exportingPlanId, setExportingPlanId] = useState(null);
+  const [togglingRestDay, setTogglingRestDay] = useState(null); // "planId-day"
   const { confirm, Confirmer }          = useConfirm();
 
   useEffect(() => { loadPlans(); }, [athleteId]);
@@ -1024,11 +1035,25 @@ function WorkoutPlanTab({ athleteId, toast, units }) {
     loadPlans(); toast.show("Exercise removed","success");
   }
 
+  async function toggleRestDay(plan, day) {
+    const key = `${plan.id}-${day}`;
+    setTogglingRestDay(key);
+    try {
+      const updated = await apiPatch(`/athletes/${athleteId}/workout-plans/${plan.id}/rest-days`, { day });
+      setPlans(ps => ps.map(p => p.id === plan.id ? updated : p));
+    } catch(err) { toast.show(err.message, "error"); }
+    setTogglingRestDay(null);
+  }
+
   async function exportPlan(plan) {
     setExportingPlanId(plan.id);
     try {
       const resp = await fetch(`${API_BASE}/athletes/${athleteId}/workout-plans/${plan.id}/export-xlsx`);
-      if (!resp.ok) throw new Error("Export failed");
+      if (!resp.ok) {
+        let detail = `Export failed (${resp.status})`;
+        try { const e = await resp.json(); detail = e.detail || detail; } catch(_) {}
+        throw new Error(detail);
+      }
       const blob = await resp.blob();
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
@@ -1098,9 +1123,23 @@ function WorkoutPlanTab({ athleteId, toast, units }) {
                 <div className="week-grid">
                   {WORKOUT_DAYS.map(day=>{
                     const daySessions = plan.sessions?.filter(s=>s.day_of_week===day)||[];
+                    const isRest = (plan.rest_days||[]).includes(day);
+                    const toggling = togglingRestDay === `${plan.id}-${day}`;
                     return (
-                      <div key={day} className="week-col">
-                        <div className="week-col-header">{day.slice(0,3)}</div>
+                      <div key={day} className="week-col" style={isRest?{opacity:0.75}:{}}>
+                        {/* Day header */}
+                        <div className="week-col-header">
+                          <span>{day.slice(0,3)}</span>
+                        </div>
+
+                        {/* Rest day banner (when marked as rest) */}
+                        {isRest && daySessions.length===0 && (
+                          <div style={{fontSize:10,color:"var(--muted)",textAlign:"center",padding:"8px 4px",background:"var(--surface2)",borderRadius:6,marginTop:4}}>
+                            Rest &amp; Recovery
+                          </div>
+                        )}
+
+                        {/* Sessions (shown even on rest days if any exist) */}
                         {daySessions.map(sess=>(
                           <div key={sess.id} className={"session-card"+(selectedSession===sess.id?" active":"")}
                             onClick={()=>setSelectedSession(selectedSession===sess.id?null:sess.id)}>
@@ -1117,9 +1156,25 @@ function WorkoutPlanTab({ athleteId, toast, units }) {
                             </div>
                           </div>
                         ))}
-                        <button className="btn btn-ghost btn-sm" style={{width:"100%",marginTop:4,fontSize:11,justifyContent:"center"}}
-                          onClick={()=>{setEditSession(null);setSessionDay(day);setShowSessionForm(true);}}>
-                          <Icon name="plus" size={11}/>Session
+
+                        {/* Add Session / Rest Day buttons */}
+                        {!isRest && (
+                          <button className="btn btn-ghost btn-sm" style={{width:"100%",marginTop:4,fontSize:11,justifyContent:"center"}}
+                            onClick={()=>{setEditSession(null);setSessionDay(day);setShowSessionForm(true);}}>
+                            <Icon name="plus" size={11}/>Session
+                          </button>
+                        )}
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          style={{width:"100%",marginTop:4,fontSize:11,justifyContent:"center",
+                            color: isRest ? "var(--accent)" : "var(--muted)",
+                            borderColor: isRest ? "var(--accent)" : undefined,
+                            opacity: toggling ? 0.5 : 1}}
+                          disabled={toggling}
+                          onClick={()=>toggleRestDay(plan,day)}
+                        >
+                          {toggling ? <Spinner/> : <Icon name="moon" size={11}/>}
+                          {isRest ? "Remove Rest" : "Rest Day"}
                         </button>
                       </div>
                     );
@@ -1264,17 +1319,17 @@ function WorkoutPlanTab({ athleteId, toast, units }) {
 
       {/* Dialogs */}
       {showPlanForm && (
-        <WorkoutPlanFormDialog plan={editPlan} athleteId={athleteId}
+        <WorkoutPlanFormDialog plan={editPlan} athleteId={athleteId} toast={toast}
           onSave={()=>{loadPlans();toast.show(editPlan?"Plan updated":"Plan created","success");setShowPlanForm(false);setEditPlan(null);}}
           onClose={()=>{setShowPlanForm(false);setEditPlan(null);}}/>
       )}
       {showSessionForm && (
-        <SessionDialog session={editSession} planId={selectedPlan} defaultDay={sessionDay} athleteId={athleteId}
+        <SessionDialog session={editSession} planId={selectedPlan} defaultDay={sessionDay} athleteId={athleteId} toast={toast}
           onSave={()=>{loadPlans();toast.show(editSession?"Session updated":"Session created","success");setShowSessionForm(false);setEditSession(null);}}
           onClose={()=>{setShowSessionForm(false);setEditSession(null);}}/>
       )}
       {showExForm && selectedSession && (
-        <ExerciseDialog exercise={editEx} sessionId={selectedSession} units={units}
+        <ExerciseDialog exercise={editEx} sessionId={selectedSession} units={units} toast={toast}
           onSave={()=>{loadPlans();toast.show(editEx?"Exercise updated":"Exercise added","success");setShowExForm(false);setEditEx(null);}}
           onClose={()=>{setShowExForm(false);setEditEx(null);}}/>
       )}

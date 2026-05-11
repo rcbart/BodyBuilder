@@ -12,7 +12,8 @@ async function apiFetch(method, path, body) {
   return res.json();
 }
 
-const apiGet  = (path)        => apiFetch("GET",    path);
-const apiPut  = (path, body)  => apiFetch("PUT",    path, body);
-const apiPost = (path, body)  => apiFetch("POST",   path, body);
-const apiDel  = (path)        => apiFetch("DELETE", path);
+const apiGet   = (path)        => apiFetch("GET",    path);
+const apiPut   = (path, body)  => apiFetch("PUT",    path, body);
+const apiPost  = (path, body)  => apiFetch("POST",   path, body);
+const apiDel   = (path)        => apiFetch("DELETE", path);
+const apiPatch = (path, body)  => apiFetch("PATCH",  path, body);

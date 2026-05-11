@@ -1,6 +1,6 @@
 # BodyBuilder — Download Instructions
 
-**Version 1.2.0 · macOS**
+**Version 1.2.1 · macOS**
 
 ---
 
@@ -10,8 +10,8 @@ There are two versions of BodyBuilder available. You only need to download **one
 
 | File | Who it's for |
 |---|---|
-| `BodyBuilder-1.2.0-arm64.dmg` | **Apple Silicon Macs** — any Mac with an M1, M2, M3, or M4 chip (most Macs made from late 2020 onwards) |
-| `BodyBuilder-1.2.0-x86_64.dmg` | **Intel Macs** — older Macs made before late 2020 |
+| `BodyBuilder-1.2.1-arm64.dmg` | **Apple Silicon Macs** — any Mac with an M1, M2, M3, or M4 chip (most Macs made from late 2020 onwards) |
+| `BodyBuilder-1.2.1-x86_64.dmg` | **Intel Macs** — older Macs made before late 2020 |
 
 **Not sure which one you have?** Follow the steps below — it takes less than 30 seconds.
 
@@ -25,8 +25,8 @@ There are two versions of BodyBuilder available. You only need to download **one
 
 | What you see | Download this file |
 |---|---|
-| **Apple M1**, **Apple M2**, **Apple M3**, **Apple M4** (or any M-number) | `BodyBuilder-1.2.0-**arm64**.dmg` |
-| **Intel Core i5**, **Intel Core i7**, **Intel Core i9**, **Intel Xeon** (or any Intel) | `BodyBuilder-1.2.0-**x86_64**.dmg` |
+| **Apple M1**, **Apple M2**, **Apple M3**, **Apple M4** (or any M-number) | `BodyBuilder-1.2.1-**arm64**.dmg` |
+| **Intel Core i5**, **Intel Core i7**, **Intel Core i9**, **Intel Xeon** (or any Intel) | `BodyBuilder-1.2.1-**x86_64**.dmg` |
 
 > **Quick rule of thumb:** If your Mac was bought in 2021 or later, it almost certainly has an Apple chip. If it was bought in 2019 or earlier, it almost certainly has an Intel chip. If you bought it in 2020, check the label above to be sure.
 

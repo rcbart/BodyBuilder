@@ -61,10 +61,6 @@ function App() {
     setLoading(false);
   }
 
-  function initials(name) {
-    return (name || "?").split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
-  }
-
   const currentAthlete = athletes.find(a => a.id === athleteId);
   const units = currentAthlete?.units || "metric";
 

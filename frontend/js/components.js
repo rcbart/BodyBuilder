@@ -54,14 +54,44 @@ function ToggleGroup({ options, value, onChange }) {
   );
 }
 
+// ── Dialog Close Button ────────────────────────────────────────────────────────
+// Shared ✕ button used at the top-right of every dialog.
+function DialogCloseBtn({ onClose }) {
+  return (
+    <button
+      onClick={onClose}
+      style={{ background:"none", border:"none", cursor:"pointer", color:"var(--muted)",
+               padding:4, lineHeight:1, fontSize:18, fontWeight:700 }}
+      title="Close"
+    >✕</button>
+  );
+}
+
+// ── Dialog Title Row ──────────────────────────────────────────────────────────
+// Renders the standard dialog header: icon + title text on the left, ✕ on the right.
+function DialogTitle({ icon, size = 20, children, onClose }) {
+  return (
+    <div className="dialog-title" style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+      <span style={{ display:"flex", alignItems:"center", gap:8 }}>
+        {icon && <Icon name={icon} size={size}/>}
+        {children}
+      </span>
+      <DialogCloseBtn onClose={onClose}/>
+    </div>
+  );
+}
+
 // ── Confirm Dialog ─────────────────────────────────────────────────────────────
 function ConfirmDialog({ title, message, confirmLabel = "Delete", danger = true, onConfirm, onClose }) {
   return (
     <div className="overlay" style={{ zIndex: 200 }}>
       <div className="dialog" style={{ maxWidth: 380 }}>
-        <div className="dialog-title">
-          <Icon name="alert" size={20} color={danger ? "var(--red)" : "var(--accent)"} />
-          {title}
+        <div className="dialog-title" style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <span style={{ display:"flex", alignItems:"center", gap:8 }}>
+            <Icon name="alert" size={20} color={danger ? "var(--red)" : "var(--accent)"} />
+            {title}
+          </span>
+          <DialogCloseBtn onClose={onClose}/>
         </div>
         <p style={{ color: "var(--text2)", fontSize: 14, lineHeight: 1.6 }}>{message}</p>
         <div className="dialog-actions">
@@ -110,7 +140,7 @@ function VersionDialog({ current, onSave, onClose }) {
   return (
     <div className="overlay">
       <div className="dialog">
-        <div className="dialog-title"><Icon name="tag" size={20} />Set Version</div>
+        <DialogTitle icon="tag" onClose={onClose}>Set Version</DialogTitle>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 14 }}>
           {["major", "minor", "tiny"].map(k => (
             <FF key={k} label={k.charAt(0).toUpperCase() + k.slice(1)} error={e[k]}>
@@ -154,4 +184,10 @@ function EmptyState({ icon = "clipboard", title, message, action }) {
       {action && <div style={{ marginTop: 20 }}>{action}</div>}
     </div>
   );
+}
+
+// ── Shared utility ─────────────────────────────────────────────────────────────
+// Returns initials from a full name string (e.g. "John Doe" → "JD").
+function initials(name = "") {
+  return name.trim().split(/\s+/).map(w => w[0] || "").join("").toUpperCase().slice(0, 2) || "?";
 }

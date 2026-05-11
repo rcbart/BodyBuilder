@@ -25,125 +25,125 @@ const srcLabel = (key) => SOURCE_TYPES.find(t => t.key === key)?.label || key;
 // Fields: n=name, cat=source_type_key, kcal, p=protein, c=carbs, f=fat,
 //         fi=fiber, na=sodium(mg), k=potassium(mg)
 const FOOD_LIBRARY = [
-  // ── Protein sources ──
-  { n:"Chicken Breast (raw)",      cat:"protein", kcal:165, p:31.0, c:0.0,  f:3.6,  fi:0.0, na:74,  k:256 },
-  { n:"Chicken Breast (cooked)",   cat:"protein", kcal:187, p:35.1, c:0.0,  f:4.0,  fi:0.0, na:84,  k:291 },
-  { n:"Chicken Thigh (raw)",       cat:"protein", kcal:177, p:21.9, c:0.0,  f:9.4,  fi:0.0, na:82,  k:229 },
-  { n:"Turkey Breast",             cat:"protein", kcal:135, p:30.0, c:0.0,  f:1.0,  fi:0.0, na:70,  k:298 },
-  { n:"Ground Turkey 93%",         cat:"protein", kcal:163, p:20.2, c:0.0,  f:9.0,  fi:0.0, na:77,  k:290 },
-  { n:"Lean Ground Beef 93%",      cat:"protein", kcal:172, p:26.0, c:0.0,  f:7.0,  fi:0.0, na:75,  k:318 },
-  { n:"Lean Ground Beef 96%",      cat:"protein", kcal:137, p:24.3, c:0.0,  f:4.5,  fi:0.0, na:63,  k:303 },
-  { n:"Beef Steak (Sirloin)",      cat:"protein", kcal:207, p:26.4, c:0.0,  f:11.1, fi:0.0, na:57,  k:343 },
-  { n:"Beef Ribeye",               cat:"protein", kcal:291, p:24.5, c:0.0,  f:21.0, fi:0.0, na:59,  k:283 },
-  { n:"Pork Tenderloin",           cat:"protein", kcal:143, p:26.2, c:0.0,  f:3.5,  fi:0.0, na:47,  k:425 },
-  { n:"Bison",                     cat:"protein", kcal:146, p:28.4, c:0.0,  f:2.9,  fi:0.0, na:56,  k:361 },
-  { n:"Salmon (Atlantic)",         cat:"protein", kcal:208, p:20.4, c:0.0,  f:13.4, fi:0.0, na:59,  k:363 },
-  { n:"Tuna (canned in water)",    cat:"protein", kcal:109, p:25.5, c:0.0,  f:0.8,  fi:0.0, na:320, k:237 },
-  { n:"Tilapia",                   cat:"protein", kcal:96,  p:20.1, c:0.0,  f:1.7,  fi:0.0, na:52,  k:302 },
-  { n:"Cod",                       cat:"protein", kcal:82,  p:17.8, c:0.0,  f:0.7,  fi:0.0, na:54,  k:413 },
-  { n:"Shrimp",                    cat:"protein", kcal:99,  p:24.0, c:0.3,  f:0.3,  fi:0.0, na:111, k:259 },
-  { n:"Whitefish",                 cat:"protein", kcal:134, p:19.4, c:0.0,  f:5.9,  fi:0.0, na:55,  k:346 },
-  { n:"Whole Egg",                 cat:"protein", kcal:155, p:12.6, c:1.1,  f:10.6, fi:0.0, na:124, k:126 },
-  { n:"Egg White",                 cat:"protein", kcal:52,  p:10.9, c:0.7,  f:0.2,  fi:0.0, na:166, k:163 },
-  { n:"Whey Protein Powder",       cat:"protein", kcal:400, p:80.0, c:8.0,  f:5.0,  fi:1.0, na:200, k:500 },
-  { n:"Casein Protein Powder",     cat:"protein", kcal:371, p:75.0, c:10.0, f:3.0,  fi:1.0, na:450, k:480 },
-  { n:"Cottage Cheese (1%)",       cat:"protein", kcal:72,  p:12.4, c:2.7,  f:1.0,  fi:0.0, na:406, k:104 },
-  { n:"Canned Salmon",             cat:"protein", kcal:139, p:20.5, c:0.0,  f:6.0,  fi:0.0, na:324, k:316 },
-  { n:"Tempeh",                    cat:"protein", kcal:195, p:19.0, c:9.4,  f:11.0, fi:0.0, na:14,  k:401 },
+  // ── Protein sources ── (serving_g = typical single serving in grams)
+  { n:"Chicken Breast (raw)",      cat:"protein", kcal:165, p:31.0, c:0.0,  f:3.6,  fi:0.0, na:74,  k:256,  serving_g:150, serving_size:"1 medium breast (150g)" },
+  { n:"Chicken Breast (cooked)",   cat:"protein", kcal:187, p:35.1, c:0.0,  f:4.0,  fi:0.0, na:84,  k:291,  serving_g:140, serving_size:"1 medium breast (140g)" },
+  { n:"Chicken Thigh (raw)",       cat:"protein", kcal:177, p:21.9, c:0.0,  f:9.4,  fi:0.0, na:82,  k:229,  serving_g:113, serving_size:"4 oz (113g)" },
+  { n:"Turkey Breast",             cat:"protein", kcal:135, p:30.0, c:0.0,  f:1.0,  fi:0.0, na:70,  k:298,  serving_g:113, serving_size:"4 oz (113g)" },
+  { n:"Ground Turkey 93%",         cat:"protein", kcal:163, p:20.2, c:0.0,  f:9.0,  fi:0.0, na:77,  k:290,  serving_g:113, serving_size:"4 oz (113g)" },
+  { n:"Lean Ground Beef 93%",      cat:"protein", kcal:172, p:26.0, c:0.0,  f:7.0,  fi:0.0, na:75,  k:318,  serving_g:113, serving_size:"4 oz (113g)" },
+  { n:"Lean Ground Beef 96%",      cat:"protein", kcal:137, p:24.3, c:0.0,  f:4.5,  fi:0.0, na:63,  k:303,  serving_g:113, serving_size:"4 oz (113g)" },
+  { n:"Beef Steak (Sirloin)",      cat:"protein", kcal:207, p:26.4, c:0.0,  f:11.1, fi:0.0, na:57,  k:343,  serving_g:170, serving_size:"6 oz steak (170g)" },
+  { n:"Beef Ribeye",               cat:"protein", kcal:291, p:24.5, c:0.0,  f:21.0, fi:0.0, na:59,  k:283,  serving_g:227, serving_size:"8 oz steak (227g)" },
+  { n:"Pork Tenderloin",           cat:"protein", kcal:143, p:26.2, c:0.0,  f:3.5,  fi:0.0, na:47,  k:425,  serving_g:113, serving_size:"4 oz (113g)" },
+  { n:"Bison",                     cat:"protein", kcal:146, p:28.4, c:0.0,  f:2.9,  fi:0.0, na:56,  k:361,  serving_g:113, serving_size:"4 oz (113g)" },
+  { n:"Salmon (Atlantic)",         cat:"protein", kcal:208, p:20.4, c:0.0,  f:13.4, fi:0.0, na:59,  k:363,  serving_g:170, serving_size:"6 oz fillet (170g)" },
+  { n:"Tuna (canned in water)",    cat:"protein", kcal:109, p:25.5, c:0.0,  f:0.8,  fi:0.0, na:320, k:237,  serving_g:140, serving_size:"1 can drained (140g)" },
+  { n:"Tilapia",                   cat:"protein", kcal:96,  p:20.1, c:0.0,  f:1.7,  fi:0.0, na:52,  k:302,  serving_g:150, serving_size:"1 fillet (150g)" },
+  { n:"Cod",                       cat:"protein", kcal:82,  p:17.8, c:0.0,  f:0.7,  fi:0.0, na:54,  k:413,  serving_g:150, serving_size:"1 fillet (150g)" },
+  { n:"Shrimp",                    cat:"protein", kcal:99,  p:24.0, c:0.3,  f:0.3,  fi:0.0, na:111, k:259,  serving_g:85,  serving_size:"3 oz (85g)" },
+  { n:"Whitefish",                 cat:"protein", kcal:134, p:19.4, c:0.0,  f:5.9,  fi:0.0, na:55,  k:346,  serving_g:150, serving_size:"1 fillet (150g)" },
+  { n:"Whole Egg",                 cat:"protein", kcal:155, p:12.6, c:1.1,  f:10.6, fi:0.0, na:124, k:126,  serving_g:50,  serving_size:"1 large egg (50g)" },
+  { n:"Egg White",                 cat:"protein", kcal:52,  p:10.9, c:0.7,  f:0.2,  fi:0.0, na:166, k:163,  serving_g:33,  serving_size:"1 large egg white (33g)" },
+  { n:"Whey Protein Powder",       cat:"protein", kcal:400, p:80.0, c:8.0,  f:5.0,  fi:1.0, na:200, k:500,  serving_g:30,  serving_size:"1 scoop (30g)" },
+  { n:"Casein Protein Powder",     cat:"protein", kcal:371, p:75.0, c:10.0, f:3.0,  fi:1.0, na:450, k:480,  serving_g:33,  serving_size:"1 scoop (33g)" },
+  { n:"Cottage Cheese (1%)",       cat:"protein", kcal:72,  p:12.4, c:2.7,  f:1.0,  fi:0.0, na:406, k:104,  serving_g:226, serving_size:"1 cup (226g)" },
+  { n:"Canned Salmon",             cat:"protein", kcal:139, p:20.5, c:0.0,  f:6.0,  fi:0.0, na:324, k:316,  serving_g:85,  serving_size:"3 oz (85g)" },
+  { n:"Tempeh",                    cat:"protein", kcal:195, p:19.0, c:9.4,  f:11.0, fi:0.0, na:14,  k:401,  serving_g:84,  serving_size:"1/3 block (84g)" },
 
   // ── Carb sources ──
-  { n:"White Rice (cooked)",       cat:"carb", kcal:130, p:2.7,  c:28.2, f:0.3, fi:0.4,  na:1,  k:35  },
-  { n:"Brown Rice (cooked)",       cat:"carb", kcal:123, p:2.7,  c:25.6, f:1.0, fi:1.8,  na:5,  k:79  },
-  { n:"Jasmine Rice (cooked)",     cat:"carb", kcal:129, p:2.7,  c:28.0, f:0.3, fi:0.3,  na:1,  k:28  },
-  { n:"Oats (dry)",                cat:"carb", kcal:389, p:17.0, c:66.3, f:6.9, fi:10.6, na:2,  k:429 },
-  { n:"Oats (cooked)",             cat:"carb", kcal:71,  p:2.5,  c:12.0, f:1.5, fi:1.7,  na:49, k:61  },
-  { n:"Sweet Potato (raw)",        cat:"carb", kcal:86,  p:1.6,  c:20.1, f:0.1, fi:3.0,  na:55, k:337 },
-  { n:"Sweet Potato (cooked)",     cat:"carb", kcal:90,  p:2.0,  c:20.7, f:0.1, fi:3.3,  na:36, k:475 },
-  { n:"White Potato",              cat:"carb", kcal:77,  p:2.0,  c:17.5, f:0.1, fi:2.2,  na:6,  k:421 },
-  { n:"Pasta (dry)",               cat:"carb", kcal:371, p:13.0, c:74.7, f:1.5, fi:2.9,  na:6,  k:215 },
-  { n:"Whole Wheat Pasta (dry)",   cat:"carb", kcal:348, p:13.1, c:68.5, f:2.5, fi:7.2,  na:6,  k:266 },
-  { n:"Bread (Whole Wheat)",       cat:"carb", kcal:247, p:13.0, c:41.0, f:4.2, fi:7.4,  na:400,k:248 },
-  { n:"Sourdough Bread",           cat:"carb", kcal:289, p:9.5,  c:55.7, f:2.2, fi:2.4,  na:561,k:121 },
-  { n:"Quinoa (cooked)",           cat:"carb", kcal:120, p:4.4,  c:21.3, f:1.9, fi:2.8,  na:7,  k:172 },
-  { n:"Corn",                      cat:"carb", kcal:86,  p:3.2,  c:19.0, f:1.2, fi:2.7,  na:15, k:270 },
-  { n:"Lentils (cooked)",          cat:"carb", kcal:116, p:9.0,  c:20.1, f:0.4, fi:7.9,  na:2,  k:369 },
-  { n:"Black Beans (cooked)",      cat:"carb", kcal:132, p:8.9,  c:23.7, f:0.5, fi:8.7,  na:1,  k:355 },
-  { n:"Chickpeas (cooked)",        cat:"carb", kcal:164, p:8.9,  c:27.4, f:2.6, fi:7.6,  na:7,  k:291 },
-  { n:"Rice Cakes",                cat:"carb", kcal:387, p:8.2,  c:81.6, f:2.8, fi:1.4,  na:10, k:110 },
-  { n:"Cream of Rice (dry)",       cat:"carb", kcal:366, p:7.0,  c:80.5, f:1.0, fi:0.5,  na:5,  k:69  },
-  { n:"Bagel (plain)",             cat:"carb", kcal:272, p:10.5, c:53.4, f:1.7, fi:2.3,  na:477,k:111 },
+  { n:"White Rice (cooked)",       cat:"carb", kcal:130, p:2.7,  c:28.2, f:0.3, fi:0.4,  na:1,  k:35,   serving_g:186, serving_size:"1 cup cooked (186g)" },
+  { n:"Brown Rice (cooked)",       cat:"carb", kcal:123, p:2.7,  c:25.6, f:1.0, fi:1.8,  na:5,  k:79,   serving_g:195, serving_size:"1 cup cooked (195g)" },
+  { n:"Jasmine Rice (cooked)",     cat:"carb", kcal:129, p:2.7,  c:28.0, f:0.3, fi:0.3,  na:1,  k:28,   serving_g:186, serving_size:"1 cup cooked (186g)" },
+  { n:"Oats (dry)",                cat:"carb", kcal:389, p:17.0, c:66.3, f:6.9, fi:10.6, na:2,  k:429,  serving_g:40,  serving_size:"1/3 cup dry (40g)" },
+  { n:"Oats (cooked)",             cat:"carb", kcal:71,  p:2.5,  c:12.0, f:1.5, fi:1.7,  na:49, k:61,   serving_g:234, serving_size:"1 cup cooked (234g)" },
+  { n:"Sweet Potato (raw)",        cat:"carb", kcal:86,  p:1.6,  c:20.1, f:0.1, fi:3.0,  na:55, k:337,  serving_g:130, serving_size:"1 medium (130g)" },
+  { n:"Sweet Potato (cooked)",     cat:"carb", kcal:90,  p:2.0,  c:20.7, f:0.1, fi:3.3,  na:36, k:475,  serving_g:130, serving_size:"1 medium (130g)" },
+  { n:"White Potato",              cat:"carb", kcal:77,  p:2.0,  c:17.5, f:0.1, fi:2.2,  na:6,  k:421,  serving_g:150, serving_size:"1 medium (150g)" },
+  { n:"Pasta (dry)",               cat:"carb", kcal:371, p:13.0, c:74.7, f:1.5, fi:2.9,  na:6,  k:215,  serving_g:56,  serving_size:"2 oz dry (56g)" },
+  { n:"Whole Wheat Pasta (dry)",   cat:"carb", kcal:348, p:13.1, c:68.5, f:2.5, fi:7.2,  na:6,  k:266,  serving_g:56,  serving_size:"2 oz dry (56g)" },
+  { n:"Bread (Whole Wheat)",       cat:"carb", kcal:247, p:13.0, c:41.0, f:4.2, fi:7.4,  na:400,k:248,  serving_g:28,  serving_size:"1 slice (28g)" },
+  { n:"Sourdough Bread",           cat:"carb", kcal:289, p:9.5,  c:55.7, f:2.2, fi:2.4,  na:561,k:121,  serving_g:56,  serving_size:"2 slices (56g)" },
+  { n:"Quinoa (cooked)",           cat:"carb", kcal:120, p:4.4,  c:21.3, f:1.9, fi:2.8,  na:7,  k:172,  serving_g:185, serving_size:"1 cup cooked (185g)" },
+  { n:"Corn",                      cat:"carb", kcal:86,  p:3.2,  c:19.0, f:1.2, fi:2.7,  na:15, k:270,  serving_g:154, serving_size:"1 cup (154g)" },
+  { n:"Lentils (cooked)",          cat:"carb", kcal:116, p:9.0,  c:20.1, f:0.4, fi:7.9,  na:2,  k:369,  serving_g:198, serving_size:"1 cup cooked (198g)" },
+  { n:"Black Beans (cooked)",      cat:"carb", kcal:132, p:8.9,  c:23.7, f:0.5, fi:8.7,  na:1,  k:355,  serving_g:172, serving_size:"1 cup cooked (172g)" },
+  { n:"Chickpeas (cooked)",        cat:"carb", kcal:164, p:8.9,  c:27.4, f:2.6, fi:7.6,  na:7,  k:291,  serving_g:164, serving_size:"1 cup cooked (164g)" },
+  { n:"Rice Cakes",                cat:"carb", kcal:387, p:8.2,  c:81.6, f:2.8, fi:1.4,  na:10, k:110,  serving_g:9,   serving_size:"1 cake (9g)" },
+  { n:"Cream of Rice (dry)",       cat:"carb", kcal:366, p:7.0,  c:80.5, f:1.0, fi:0.5,  na:5,  k:69,   serving_g:43,  serving_size:"1/4 cup dry (43g)" },
+  { n:"Bagel (plain)",             cat:"carb", kcal:272, p:10.5, c:53.4, f:1.7, fi:2.3,  na:477,k:111,  serving_g:98,  serving_size:"1 medium bagel (98g)" },
 
   // ── Fat sources ──
-  { n:"Olive Oil",                 cat:"fat", kcal:884, p:0.0,  c:0.0,  f:100.0,fi:0.0, na:2,  k:1   },
-  { n:"Coconut Oil",               cat:"fat", kcal:862, p:0.0,  c:0.0,  f:100.0,fi:0.0, na:0,  k:0   },
-  { n:"MCT Oil",                   cat:"fat", kcal:862, p:0.0,  c:0.0,  f:100.0,fi:0.0, na:0,  k:0   },
-  { n:"Avocado",                   cat:"fat", kcal:160, p:2.0,  c:8.5,  f:14.7, fi:6.7, na:7,  k:485 },
-  { n:"Almonds",                   cat:"fat", kcal:579, p:21.2, c:21.7, f:49.9, fi:12.5,na:1,  k:733 },
-  { n:"Walnuts",                   cat:"fat", kcal:654, p:15.2, c:13.7, f:65.2, fi:6.7, na:2,  k:441 },
-  { n:"Cashews",                   cat:"fat", kcal:553, p:18.2, c:30.2, f:43.9, fi:3.3, na:12, k:660 },
-  { n:"Peanuts",                   cat:"fat", kcal:567, p:25.8, c:16.1, f:49.2, fi:8.5, na:18, k:705 },
-  { n:"Macadamia Nuts",            cat:"fat", kcal:718, p:7.9,  c:13.8, f:75.8, fi:8.6, na:5,  k:368 },
-  { n:"Peanut Butter (natural)",   cat:"fat", kcal:598, p:25.1, c:20.1, f:51.4, fi:6.0, na:17, k:558 },
-  { n:"Almond Butter",             cat:"fat", kcal:614, p:20.8, c:18.8, f:55.5, fi:10.3,na:7,  k:740 },
-  { n:"Flaxseed",                  cat:"fat", kcal:534, p:18.3, c:28.9, f:42.2, fi:27.3,na:30, k:813 },
-  { n:"Chia Seeds",                cat:"fat", kcal:486, p:16.5, c:42.1, f:30.7, fi:34.4,na:16, k:407 },
-  { n:"Hemp Seeds",                cat:"fat", kcal:553, p:31.6, c:8.7,  f:48.7, fi:4.0, na:5,  k:859 },
-  { n:"Sunflower Seeds",           cat:"fat", kcal:584, p:20.8, c:20.0, f:51.5, fi:8.6, na:9,  k:645 },
+  { n:"Olive Oil",                 cat:"fat", kcal:884, p:0.0,  c:0.0,  f:100.0,fi:0.0, na:2,  k:1,    serving_g:14,  serving_size:"1 tbsp (14g)" },
+  { n:"Coconut Oil",               cat:"fat", kcal:862, p:0.0,  c:0.0,  f:100.0,fi:0.0, na:0,  k:0,    serving_g:13,  serving_size:"1 tbsp (13g)" },
+  { n:"MCT Oil",                   cat:"fat", kcal:862, p:0.0,  c:0.0,  f:100.0,fi:0.0, na:0,  k:0,    serving_g:15,  serving_size:"1 tbsp (15g)" },
+  { n:"Avocado",                   cat:"fat", kcal:160, p:2.0,  c:8.5,  f:14.7, fi:6.7, na:7,  k:485,  serving_g:150, serving_size:"1 medium avocado (150g)" },
+  { n:"Almonds",                   cat:"fat", kcal:579, p:21.2, c:21.7, f:49.9, fi:12.5,na:1,  k:733,  serving_g:28,  serving_size:"1 oz / ~23 almonds (28g)" },
+  { n:"Walnuts",                   cat:"fat", kcal:654, p:15.2, c:13.7, f:65.2, fi:6.7, na:2,  k:441,  serving_g:28,  serving_size:"1 oz / ~14 halves (28g)" },
+  { n:"Cashews",                   cat:"fat", kcal:553, p:18.2, c:30.2, f:43.9, fi:3.3, na:12, k:660,  serving_g:28,  serving_size:"1 oz / ~18 cashews (28g)" },
+  { n:"Peanuts",                   cat:"fat", kcal:567, p:25.8, c:16.1, f:49.2, fi:8.5, na:18, k:705,  serving_g:28,  serving_size:"1 oz (28g)" },
+  { n:"Macadamia Nuts",            cat:"fat", kcal:718, p:7.9,  c:13.8, f:75.8, fi:8.6, na:5,  k:368,  serving_g:28,  serving_size:"1 oz / ~10-12 nuts (28g)" },
+  { n:"Peanut Butter (natural)",   cat:"fat", kcal:598, p:25.1, c:20.1, f:51.4, fi:6.0, na:17, k:558,  serving_g:32,  serving_size:"2 tbsp (32g)" },
+  { n:"Almond Butter",             cat:"fat", kcal:614, p:20.8, c:18.8, f:55.5, fi:10.3,na:7,  k:740,  serving_g:32,  serving_size:"2 tbsp (32g)" },
+  { n:"Flaxseed",                  cat:"fat", kcal:534, p:18.3, c:28.9, f:42.2, fi:27.3,na:30, k:813,  serving_g:10,  serving_size:"1 tbsp (10g)" },
+  { n:"Chia Seeds",                cat:"fat", kcal:486, p:16.5, c:42.1, f:30.7, fi:34.4,na:16, k:407,  serving_g:28,  serving_size:"2 tbsp (28g)" },
+  { n:"Hemp Seeds",                cat:"fat", kcal:553, p:31.6, c:8.7,  f:48.7, fi:4.0, na:5,  k:859,  serving_g:30,  serving_size:"3 tbsp (30g)" },
+  { n:"Sunflower Seeds",           cat:"fat", kcal:584, p:20.8, c:20.0, f:51.5, fi:8.6, na:9,  k:645,  serving_g:28,  serving_size:"1 oz (28g)" },
 
   // ── Vegetables ──
-  { n:"Broccoli",                  cat:"vegetable", kcal:34,  p:2.8, c:6.6,  f:0.4, fi:2.6, na:33, k:316 },
-  { n:"Spinach",                   cat:"vegetable", kcal:23,  p:2.9, c:3.6,  f:0.4, fi:2.2, na:79, k:558 },
-  { n:"Kale",                      cat:"vegetable", kcal:49,  p:4.3, c:8.8,  f:0.9, fi:3.6, na:38, k:491 },
-  { n:"Asparagus",                 cat:"vegetable", kcal:20,  p:2.2, c:3.9,  f:0.1, fi:2.1, na:2,  k:202 },
-  { n:"Green Beans",               cat:"vegetable", kcal:31,  p:1.8, c:7.0,  f:0.1, fi:2.7, na:6,  k:209 },
-  { n:"Bell Pepper",               cat:"vegetable", kcal:31,  p:1.0, c:6.0,  f:0.3, fi:2.1, na:4,  k:211 },
-  { n:"Zucchini",                  cat:"vegetable", kcal:17,  p:1.2, c:3.1,  f:0.3, fi:1.0, na:8,  k:261 },
-  { n:"Cauliflower",               cat:"vegetable", kcal:25,  p:1.9, c:5.0,  f:0.3, fi:2.0, na:30, k:299 },
-  { n:"Cucumber",                  cat:"vegetable", kcal:15,  p:0.7, c:3.6,  f:0.1, fi:0.5, na:2,  k:147 },
-  { n:"Mushrooms",                 cat:"vegetable", kcal:22,  p:3.1, c:3.3,  f:0.3, fi:1.0, na:5,  k:318 },
-  { n:"Edamame",                   cat:"vegetable", kcal:122, p:10.9,c:9.9,  f:5.2, fi:5.2, na:63, k:436 },
-  { n:"Brussels Sprouts",          cat:"vegetable", kcal:43,  p:3.4, c:8.9,  f:0.3, fi:3.8, na:25, k:389 },
-  { n:"Celery",                    cat:"vegetable", kcal:16,  p:0.7, c:3.0,  f:0.2, fi:1.6, na:80, k:260 },
-  { n:"Tomato",                    cat:"vegetable", kcal:18,  p:0.9, c:3.9,  f:0.2, fi:1.2, na:5,  k:237 },
-  { n:"Onion",                     cat:"vegetable", kcal:40,  p:1.1, c:9.3,  f:0.1, fi:1.7, na:4,  k:146 },
-  { n:"Mixed Greens / Lettuce",    cat:"vegetable", kcal:14,  p:1.4, c:2.2,  f:0.2, fi:1.8, na:28, k:200 },
-  { n:"Beets",                     cat:"vegetable", kcal:43,  p:1.6, c:9.6,  f:0.2, fi:2.8, na:78, k:325 },
-  { n:"Peas",                      cat:"vegetable", kcal:81,  p:5.4, c:14.5, f:0.4, fi:5.1, na:5,  k:244 },
+  { n:"Broccoli",                  cat:"vegetable", kcal:34,  p:2.8, c:6.6,  f:0.4, fi:2.6, na:33, k:316,  serving_g:91,  serving_size:"1 cup chopped (91g)" },
+  { n:"Spinach",                   cat:"vegetable", kcal:23,  p:2.9, c:3.6,  f:0.4, fi:2.2, na:79, k:558,  serving_g:30,  serving_size:"1 cup raw (30g)" },
+  { n:"Kale",                      cat:"vegetable", kcal:49,  p:4.3, c:8.8,  f:0.9, fi:3.6, na:38, k:491,  serving_g:67,  serving_size:"1 cup chopped (67g)" },
+  { n:"Asparagus",                 cat:"vegetable", kcal:20,  p:2.2, c:3.9,  f:0.1, fi:2.1, na:2,  k:202,  serving_g:93,  serving_size:"5 spears (93g)" },
+  { n:"Green Beans",               cat:"vegetable", kcal:31,  p:1.8, c:7.0,  f:0.1, fi:2.7, na:6,  k:209,  serving_g:100, serving_size:"1 cup (100g)" },
+  { n:"Bell Pepper",               cat:"vegetable", kcal:31,  p:1.0, c:6.0,  f:0.3, fi:2.1, na:4,  k:211,  serving_g:119, serving_size:"1 medium pepper (119g)" },
+  { n:"Zucchini",                  cat:"vegetable", kcal:17,  p:1.2, c:3.1,  f:0.3, fi:1.0, na:8,  k:261,  serving_g:124, serving_size:"1 medium (124g)" },
+  { n:"Cauliflower",               cat:"vegetable", kcal:25,  p:1.9, c:5.0,  f:0.3, fi:2.0, na:30, k:299,  serving_g:107, serving_size:"1 cup florets (107g)" },
+  { n:"Cucumber",                  cat:"vegetable", kcal:15,  p:0.7, c:3.6,  f:0.1, fi:0.5, na:2,  k:147,  serving_g:119, serving_size:"1 cup sliced (119g)" },
+  { n:"Mushrooms",                 cat:"vegetable", kcal:22,  p:3.1, c:3.3,  f:0.3, fi:1.0, na:5,  k:318,  serving_g:70,  serving_size:"1 cup sliced (70g)" },
+  { n:"Edamame",                   cat:"vegetable", kcal:122, p:10.9,c:9.9,  f:5.2, fi:5.2, na:63, k:436,  serving_g:100, serving_size:"1/2 cup shelled (100g)" },
+  { n:"Brussels Sprouts",          cat:"vegetable", kcal:43,  p:3.4, c:8.9,  f:0.3, fi:3.8, na:25, k:389,  serving_g:88,  serving_size:"1 cup (88g)" },
+  { n:"Celery",                    cat:"vegetable", kcal:16,  p:0.7, c:3.0,  f:0.2, fi:1.6, na:80, k:260,  serving_g:40,  serving_size:"1 stalk (40g)" },
+  { n:"Tomato",                    cat:"vegetable", kcal:18,  p:0.9, c:3.9,  f:0.2, fi:1.2, na:5,  k:237,  serving_g:123, serving_size:"1 medium tomato (123g)" },
+  { n:"Onion",                     cat:"vegetable", kcal:40,  p:1.1, c:9.3,  f:0.1, fi:1.7, na:4,  k:146,  serving_g:110, serving_size:"1 medium onion (110g)" },
+  { n:"Mixed Greens / Lettuce",    cat:"vegetable", kcal:14,  p:1.4, c:2.2,  f:0.2, fi:1.8, na:28, k:200,  serving_g:55,  serving_size:"2 cups (55g)" },
+  { n:"Beets",                     cat:"vegetable", kcal:43,  p:1.6, c:9.6,  f:0.2, fi:2.8, na:78, k:325,  serving_g:136, serving_size:"1 cup sliced (136g)" },
+  { n:"Peas",                      cat:"vegetable", kcal:81,  p:5.4, c:14.5, f:0.4, fi:5.1, na:5,  k:244,  serving_g:145, serving_size:"1 cup (145g)" },
 
   // ── Fruits ──
-  { n:"Banana",                    cat:"fruit", kcal:89,  p:1.1, c:22.8, f:0.3, fi:2.6, na:1, k:358 },
-  { n:"Apple",                     cat:"fruit", kcal:52,  p:0.3, c:13.8, f:0.2, fi:2.4, na:1, k:107 },
-  { n:"Blueberries",               cat:"fruit", kcal:57,  p:0.7, c:14.5, f:0.3, fi:2.4, na:1, k:77  },
-  { n:"Strawberries",              cat:"fruit", kcal:32,  p:0.7, c:7.7,  f:0.3, fi:2.0, na:1, k:153 },
-  { n:"Mango",                     cat:"fruit", kcal:60,  p:0.8, c:15.0, f:0.4, fi:1.6, na:1, k:168 },
-  { n:"Orange",                    cat:"fruit", kcal:47,  p:0.9, c:11.8, f:0.1, fi:2.4, na:0, k:181 },
-  { n:"Pineapple",                 cat:"fruit", kcal:50,  p:0.5, c:13.1, f:0.1, fi:1.4, na:1, k:109 },
-  { n:"Grapes",                    cat:"fruit", kcal:69,  p:0.7, c:18.1, f:0.2, fi:0.9, na:2, k:191 },
-  { n:"Watermelon",                cat:"fruit", kcal:30,  p:0.6, c:7.6,  f:0.2, fi:0.4, na:1, k:112 },
-  { n:"Raspberries",               cat:"fruit", kcal:52,  p:1.2, c:11.9, f:0.7, fi:6.5, na:1, k:151 },
+  { n:"Banana",                    cat:"fruit", kcal:89,  p:1.1, c:22.8, f:0.3, fi:2.6, na:1, k:358,  serving_g:118, serving_size:"1 medium banana (118g)" },
+  { n:"Apple",                     cat:"fruit", kcal:52,  p:0.3, c:13.8, f:0.2, fi:2.4, na:1, k:107,  serving_g:182, serving_size:"1 medium apple (182g)" },
+  { n:"Blueberries",               cat:"fruit", kcal:57,  p:0.7, c:14.5, f:0.3, fi:2.4, na:1, k:77,   serving_g:148, serving_size:"1 cup (148g)" },
+  { n:"Strawberries",              cat:"fruit", kcal:32,  p:0.7, c:7.7,  f:0.3, fi:2.0, na:1, k:153,  serving_g:152, serving_size:"1 cup sliced (152g)" },
+  { n:"Mango",                     cat:"fruit", kcal:60,  p:0.8, c:15.0, f:0.4, fi:1.6, na:1, k:168,  serving_g:165, serving_size:"1 cup chunks (165g)" },
+  { n:"Orange",                    cat:"fruit", kcal:47,  p:0.9, c:11.8, f:0.1, fi:2.4, na:0, k:181,  serving_g:131, serving_size:"1 medium orange (131g)" },
+  { n:"Pineapple",                 cat:"fruit", kcal:50,  p:0.5, c:13.1, f:0.1, fi:1.4, na:1, k:109,  serving_g:165, serving_size:"1 cup chunks (165g)" },
+  { n:"Grapes",                    cat:"fruit", kcal:69,  p:0.7, c:18.1, f:0.2, fi:0.9, na:2, k:191,  serving_g:92,  serving_size:"1/2 cup (92g)" },
+  { n:"Watermelon",                cat:"fruit", kcal:30,  p:0.6, c:7.6,  f:0.2, fi:0.4, na:1, k:112,  serving_g:280, serving_size:"2 cups diced (280g)" },
+  { n:"Raspberries",               cat:"fruit", kcal:52,  p:1.2, c:11.9, f:0.7, fi:6.5, na:1, k:151,  serving_g:123, serving_size:"1 cup (123g)" },
 
   // ── Dairy ──
-  { n:"Greek Yogurt (non-fat)",    cat:"dairy", kcal:59,  p:10.0, c:3.6, f:0.4, fi:0.0, na:36,  k:141 },
-  { n:"Greek Yogurt (2%)",         cat:"dairy", kcal:73,  p:9.0,  c:4.0, f:2.0, fi:0.0, na:41,  k:141 },
-  { n:"Milk (2%)",                 cat:"dairy", kcal:50,  p:3.3,  c:4.8, f:2.0, fi:0.0, na:44,  k:152 },
-  { n:"Milk (whole)",              cat:"dairy", kcal:61,  p:3.2,  c:4.8, f:3.3, fi:0.0, na:43,  k:150 },
-  { n:"Mozzarella (part-skim)",    cat:"dairy", kcal:254, p:24.0, c:2.8, f:15.9,fi:0.0, na:466, k:95  },
-  { n:"Cheddar Cheese",            cat:"dairy", kcal:403, p:24.9, c:1.3, f:33.1,fi:0.0, na:621, k:98  },
-  { n:"Cottage Cheese (2%)",       cat:"dairy", kcal:84,  p:11.1, c:3.4, f:2.3, fi:0.0, na:321, k:104 },
-  { n:"Ricotta (part-skim)",       cat:"dairy", kcal:138, p:11.4, c:5.1, f:8.0, fi:0.0, na:125, k:125 },
+  { n:"Greek Yogurt (non-fat)",    cat:"dairy", kcal:59,  p:10.0, c:3.6, f:0.4, fi:0.0, na:36,  k:141,  serving_g:227, serving_size:"1 cup (227g)" },
+  { n:"Greek Yogurt (2%)",         cat:"dairy", kcal:73,  p:9.0,  c:4.0, f:2.0, fi:0.0, na:41,  k:141,  serving_g:227, serving_size:"1 cup (227g)" },
+  { n:"Milk (2%)",                 cat:"dairy", kcal:50,  p:3.3,  c:4.8, f:2.0, fi:0.0, na:44,  k:152,  serving_g:244, serving_size:"1 cup (244g)" },
+  { n:"Milk (whole)",              cat:"dairy", kcal:61,  p:3.2,  c:4.8, f:3.3, fi:0.0, na:43,  k:150,  serving_g:244, serving_size:"1 cup (244g)" },
+  { n:"Mozzarella (part-skim)",    cat:"dairy", kcal:254, p:24.0, c:2.8, f:15.9,fi:0.0, na:466, k:95,   serving_g:28,  serving_size:"1 oz (28g)" },
+  { n:"Cheddar Cheese",            cat:"dairy", kcal:403, p:24.9, c:1.3, f:33.1,fi:0.0, na:621, k:98,   serving_g:28,  serving_size:"1 oz (28g)" },
+  { n:"Cottage Cheese (2%)",       cat:"dairy", kcal:84,  p:11.1, c:3.4, f:2.3, fi:0.0, na:321, k:104,  serving_g:226, serving_size:"1 cup (226g)" },
+  { n:"Ricotta (part-skim)",       cat:"dairy", kcal:138, p:11.4, c:5.1, f:8.0, fi:0.0, na:125, k:125,  serving_g:62,  serving_size:"1/4 cup (62g)" },
 
   // ── Supplements ──
-  { n:"Creatine Monohydrate",      cat:"supplement", kcal:0,   p:0.0,  c:0.0, f:0.0, fi:0.0, na:0,  k:0  },
-  { n:"BCAA Powder",               cat:"supplement", kcal:20,  p:5.0,  c:0.0, f:0.0, fi:0.0, na:10, k:0  },
-  { n:"Dextrose",                  cat:"supplement", kcal:386, p:0.0,  c:96.0,f:0.0, fi:0.0, na:0,  k:0  },
-  { n:"Maltodextrin",              cat:"supplement", kcal:380, p:0.0,  c:95.0,f:0.0, fi:0.0, na:10, k:0  },
-  { n:"Fish Oil (softgel)",        cat:"supplement", kcal:45,  p:0.0,  c:0.0, f:5.0, fi:0.0, na:0,  k:0  },
+  { n:"Creatine Monohydrate",      cat:"supplement", kcal:0,   p:0.0,  c:0.0, f:0.0, fi:0.0, na:0,  k:0,    serving_g:5,   serving_size:"1 tsp (5g)" },
+  { n:"BCAA Powder",               cat:"supplement", kcal:20,  p:5.0,  c:0.0, f:0.0, fi:0.0, na:10, k:0,    serving_g:10,  serving_size:"1 serving (10g)" },
+  { n:"Dextrose",                  cat:"supplement", kcal:386, p:0.0,  c:96.0,f:0.0, fi:0.0, na:0,  k:0,    serving_g:50,  serving_size:"1 serving (50g)" },
+  { n:"Maltodextrin",              cat:"supplement", kcal:380, p:0.0,  c:95.0,f:0.0, fi:0.0, na:10, k:0,    serving_g:50,  serving_size:"1 serving (50g)" },
+  { n:"Fish Oil (softgel)",        cat:"supplement", kcal:45,  p:0.0,  c:0.0, f:5.0, fi:0.0, na:0,  k:0,    serving_g:2,   serving_size:"1 softgel (2g)" },
 ];
 
 // ── Custom Food Dialog (add to nutrition_foods) ───────────────────────────────
 function AddCustomFoodDialog({ athleteId, onSaved, onClose, toast }) {
   const [f, setF] = useState({
-    name:"", category:"protein", serving_size:"100g",
+    name:"", category:"protein", serving_size:"100g", serving_g:100,
     protein:0, carbs:0, fat:0, fiber:0, sodium:0, potassium:0, calories:0
   });
   const [e, setE]           = useState({});
@@ -169,6 +169,7 @@ function AddCustomFoodDialog({ athleteId, onSaved, onClose, toast }) {
     try {
       const payload = {
         name: f.name, category: f.category, serving_size: f.serving_size,
+        serving_g: +f.serving_g || 100,
         protein: +f.protein, carbs: +f.carbs, fat: +f.fat,
         fiber: +f.fiber, sodium: +f.sodium, potassium: +f.potassium,
         calories: autoKcal,
@@ -180,13 +181,15 @@ function AddCustomFoodDialog({ athleteId, onSaved, onClose, toast }) {
     } catch(err) { toast.show(err.message, "error"); setSaving(false); }
   }
 
-  const catKey = { protein:"protein", carb:"carb", fat:"fat",
-                   vegetable:"vegetable", fruit:"fruit", dairy:"dairy", supplement:"supplement" };
+
 
   return (
     <div className="overlay" style={{zIndex:220}}>
       <div className="dialog dialog-lg">
-        <div className="dialog-title"><Icon name="plus" size={20}/>Add Custom Food</div>
+        <div className="dialog-title" style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <span style={{display:"flex",alignItems:"center",gap:8}}><Icon name="plus" size={20}/>Add Custom Food</span>
+          <DialogCloseBtn onClose={onClose}/>
+        </div>
         <p style={{fontSize:13,color:"var(--text2)",margin:"0 0 16px"}}>
           Values are <strong>per 100 g</strong>. Macros are calculated automatically when you add this food to a meal.
         </p>
@@ -200,9 +203,13 @@ function AddCustomFoodDialog({ athleteId, onSaved, onClose, toast }) {
               {SOURCE_TYPES.map(t=><option key={t.key} value={t.key}>{t.label}</option>)}
             </select>
           </FF>
-          <FF label="Serving Size Label">
+          <FF label="Serving Size (label)">
             <input value={f.serving_size} maxLength={50}
-              onChange={ev=>sf("serving_size",ev.target.value)} placeholder="100g"/>
+              onChange={ev=>sf("serving_size",ev.target.value)} placeholder="e.g. 1 cup, 1 scoop"/>
+          </FF>
+          <FF label="Serving Size (g)" error={e.serving_g}>
+            <input type="number" min="1" step="1" value={f.serving_g}
+              onChange={ev=>sf("serving_g",ev.target.value)} placeholder="100"/>
           </FF>
           <FF label="Protein (g)" error={e.protein}>
             <input type="number" min="0" step="0.1" value={f.protein} className={e.protein?"err":""}
@@ -258,6 +265,8 @@ function FoodPickerPanel({ onSelect, onAddCustom, customFoods, highlightName }) 
       n: f.name, cat: f.category,
       kcal: f.calories, p: f.protein, c: f.carbs, f: f.fat,
       fi: f.fiber, na: f.sodium, k: f.potassium,
+      serving_g: f.serving_g || 100,
+      serving_size: f.serving_size || "100g",
       custom: true,
     })),
   ];
@@ -329,7 +338,7 @@ function FoodPickerPanel({ onSelect, onAddCustom, customFoods, highlightName }) 
                     {food.custom && <span style={{marginLeft:6,fontSize:10,background:"var(--accent-dim)",color:"var(--accent)",borderRadius:4,padding:"1px 5px",fontWeight:700}}>custom</span>}
                     {isHighlighted && <span style={{marginLeft:6,fontSize:10,background:"var(--green-dim)",color:"var(--green)",borderRadius:4,padding:"1px 5px",fontWeight:700}}>just added ✓</span>}
                     <div style={{fontSize:11,color:"var(--text2)",marginTop:2}}>
-                      per 100g: P {food.p}g · C {food.c}g · F {food.f}g · {food.kcal} kcal
+                      per serving ({food.serving_g||100}g): P {+(food.p*(food.serving_g||100)/100).toFixed(1)}g · C {+(food.c*(food.serving_g||100)/100).toFixed(1)}g · F {+(food.f*(food.serving_g||100)/100).toFixed(1)}g · {Math.round(food.kcal*(food.serving_g||100)/100)} kcal
                     </div>
                   </div>
                   <Icon name="chevron_right" size={14} color="var(--muted)"/>
@@ -378,43 +387,58 @@ function MealItemDialog({ item, mealId, onSave, onClose, units, athleteId, toast
   });
   const [e, setE]           = useState({});
   const [saving, setSaving] = useState(false);
+  // Servings tracking
+  const [servings, setServings]   = useState(1);
+  const [servingG, setServingG]   = useState(100); // grams per 1 serving of selected food
   const sf = (k,v) => { setE(p=>({...p,[k]:null})); setF(p=>({...p,[k]:v})); };
 
-  // When a food is picked from the library, auto-populate everything
-  function pickFood(food) {
-    setSelectedFood(food);
-    setShowPicker(false);
-    // Calculate macros for current weight_g
-    const w = +f.weight_g || 100;
-    const ratio = w / 100;
-    setF(p => ({
-      ...p,
-      food_name:    food.n,
-      source_type:  food.cat,
-      serving_size: `${w}g`,
+  // Recalculate macros from a food reference + grams total
+  function calcMacros(food, totalG) {
+    const ratio = totalG / 100;
+    return {
       protein_g:    +(food.p  * ratio).toFixed(2),
       carbs_g:      +(food.c  * ratio).toFixed(2),
       fat_g:        +(food.f  * ratio).toFixed(2),
       fiber_g:      +(food.fi * ratio).toFixed(2),
       sodium_mg:    +(food.na * ratio).toFixed(1),
       potassium_mg: +(food.k  * ratio).toFixed(1),
+    };
+  }
+
+  // When a food is picked — default to 1 serving
+  function pickFood(food) {
+    setSelectedFood(food);
+    setShowPicker(false);
+    const sg = food.serving_g || 100;
+    setServingG(sg);
+    setServings(1);
+    setF(p => ({
+      ...p,
+      food_name:    food.n,
+      source_type:  food.cat,
+      serving_size: food.serving_size || `${sg}g`,
+      weight_g:     sg,
+      ...calcMacros(food, sg),
     }));
   }
 
-  // Recalculate when weight changes (only if a food is selected)
+  // When servings spinner changes — recalculate everything
+  function onServingsChange(val) {
+    const s = Math.max(0.25, parseFloat(val) || 1);
+    setServings(s);
+    if (selectedFood) {
+      const totalG = servingG * s;
+      setF(p => ({ ...p, weight_g: Math.round(totalG * 10) / 10, ...calcMacros(selectedFood, totalG) }));
+    }
+    setE(p => ({ ...p, weight_g: null }));
+  }
+
+  // Recalculate when weight changes manually (clears food selection mode)
   function onWeightChange(rawVal) {
     const wg = wgToG(rawVal, units);
     setF(p => {
-      const newF = { ...p, weight_g: wg, serving_size: `${wg}g` };
-      if (selectedFood) {
-        const ratio = wg / 100;
-        newF.protein_g    = +(selectedFood.p  * ratio).toFixed(2);
-        newF.carbs_g      = +(selectedFood.c  * ratio).toFixed(2);
-        newF.fat_g        = +(selectedFood.f  * ratio).toFixed(2);
-        newF.fiber_g      = +(selectedFood.fi * ratio).toFixed(2);
-        newF.sodium_mg    = +(selectedFood.na * ratio).toFixed(1);
-        newF.potassium_mg = +(selectedFood.k  * ratio).toFixed(1);
-      }
+      const newF = { ...p, weight_g: wg };
+      if (selectedFood) Object.assign(newF, calcMacros(selectedFood, wg));
       return newF;
     });
     setE(p => ({ ...p, weight_g: null }));
@@ -462,13 +486,16 @@ function MealItemDialog({ item, mealId, onSave, onClose, units, athleteId, toast
   return (
     <div className="overlay" style={{zIndex:160}}>
       <div className="dialog dialog-xl" style={{maxHeight:"90vh",overflowY:"auto"}}>
-        <div className="dialog-title">
-          <Icon name="apple" size={20}/>{isNew?"Add Food Item":"Edit Food Item"}
-          {selectedFood && (
-            <button className="btn btn-ghost btn-sm" style={{marginLeft:"auto"}} onClick={()=>setShowPicker(v=>!v)}>
-              <Icon name="search" size={13}/>{showPicker?"Hide":"Change Food"}
-            </button>
-          )}
+        <div className="dialog-title" style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <span style={{display:"flex",alignItems:"center",gap:8}}><Icon name="apple" size={20}/>{isNew?"Add Food Item":"Edit Food Item"}</span>
+          <span style={{display:"flex",alignItems:"center",gap:8}}>
+            {selectedFood && (
+              <button className="btn btn-ghost btn-sm" onClick={()=>setShowPicker(v=>!v)}>
+                <Icon name="search" size={13}/>{showPicker?"Hide":"Change Food"}
+              </button>
+            )}
+            <DialogCloseBtn onClose={onClose}/>
+          </span>
         </div>
 
         {/* Food picker */}
@@ -488,8 +515,44 @@ function MealItemDialog({ item, mealId, onSave, onClose, units, athleteId, toast
             <span className={`source-badge ${srcBadge(selectedFood.cat)}`} style={{fontSize:11}}>{srcLabel(selectedFood.cat)}</span>
             <span style={{fontWeight:700,fontSize:13}}>{selectedFood.n}</span>
             <span style={{fontSize:11,color:"var(--text2)"}}>
-              {selectedFood.p}g P · {selectedFood.c}g C · {selectedFood.f}g F per 100g
+              per 100g: {selectedFood.p}g P · {selectedFood.c}g C · {selectedFood.f}g F
             </span>
+          </div>
+        )}
+
+        {/* Servings selector — shown when a food is selected from the library */}
+        {selectedFood && !showPicker && (
+          <div style={{background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:10,
+            padding:"14px 16px",marginBottom:16}}>
+            <div style={{fontWeight:700,fontSize:12,color:"var(--text2)",textTransform:"uppercase",
+              letterSpacing:.5,marginBottom:10}}>Servings</div>
+            <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+              {/* Stepper */}
+              <div style={{display:"flex",alignItems:"center",gap:0,border:"1px solid var(--border2)",
+                borderRadius:8,overflow:"hidden",background:"var(--surface)"}}>
+                <button className="btn btn-ghost" style={{padding:"6px 12px",borderRadius:0,fontSize:18,lineHeight:1}}
+                  onClick={()=>onServingsChange(Math.max(0.25, servings - 0.5))}>−</button>
+                <input type="number" min="0.25" step="0.25"
+                  value={servings}
+                  onChange={ev=>onServingsChange(ev.target.value)}
+                  style={{width:60,textAlign:"center",border:"none",background:"var(--surface)",
+                    color:"var(--text)",fontFamily:"var(--font)",fontSize:15,fontWeight:700,
+                    padding:"6px 0"}}/>
+                <button className="btn btn-ghost" style={{padding:"6px 12px",borderRadius:0,fontSize:18,lineHeight:1}}
+                  onClick={()=>onServingsChange(servings + 0.5)}>+</button>
+              </div>
+              {/* Per-serving info */}
+              <div style={{fontSize:12,color:"var(--text2)"}}>
+                <span style={{color:"var(--text)",fontWeight:600}}>1 serving = {servingG}g</span>
+                <span style={{marginLeft:8}}>
+                  {+(selectedFood.p*(servingG/100)).toFixed(1)}g P · {+(selectedFood.c*(servingG/100)).toFixed(1)}g C · {+(selectedFood.f*(servingG/100)).toFixed(1)}g F
+                </span>
+              </div>
+              {/* Running total */}
+              <div style={{marginLeft:"auto",fontSize:13,fontWeight:700,color:"var(--green)"}}>
+                {Math.round(f.weight_g)}g total · {Math.round((+f.protein_g)*4+(+f.carbs_g)*4+(+f.fat_g)*9)} kcal
+              </div>
+            </div>
           </div>
         )}
 
@@ -509,20 +572,22 @@ function MealItemDialog({ item, mealId, onSave, onClose, units, athleteId, toast
               placeholder={showPicker?"Pick from the list above, or type manually…":"Food name"}/>
           </FF>
 
-          {/* Weight */}
-          <FF label={`Weight (${wgLabel(units)})`} error={e.weight_g}
-            hint={selectedFood?"Macros auto-update as you change this":""}>
+          {/* Serving size */}
+          <FF label="Serving Size" hint={selectedFood?"e.g. 1 cup, 1 breast, 100g":""}>
+            <input value={f.serving_size} maxLength={50}
+              onChange={ev=>sf("serving_size",ev.target.value)}
+              placeholder="e.g. 1 cup, 1 breast, 100g"/>
+          </FF>
+
+          {/* Weight — shown as total when using servings, fully editable for manual entry */}
+          <FF label={selectedFood?`Total Weight (${wgLabel(units)})`:`Weight (${wgLabel(units)})`} error={e.weight_g}
+            hint={selectedFood?"Auto-set by servings × serving size":""}>
             <input type="number" min="0" step={units==="metric"?"1":"0.1"}
               value={wgDisplay(f.weight_g, units)}
               className={e.weight_g?"err":""}
+              readOnly={!!selectedFood}
+              style={selectedFood?{background:"var(--surface2)",color:"var(--text2)"}:{}}
               onChange={ev => onWeightChange(ev.target.value)}/>
-          </FF>
-
-          {/* Serving size label */}
-          <FF label="Serving Description">
-            <input value={f.serving_size} maxLength={50}
-              onChange={ev=>sf("serving_size",ev.target.value)}
-              placeholder="e.g. 1 cup, 1 breast"/>
           </FF>
         </div>
 
@@ -596,6 +661,13 @@ function MealDialog({ meal, athleteId, onSave, onClose, toast, units }) {
   const [addForType, setAddForType] = useState(null);
   const [mealId, setMealId]     = useState(meal?.id||null);
   const { confirm, Confirmer }  = useConfirm();
+  const initMeta = useRef({ name: meal?.name||"", day_type: meal?.day_type||"training" });
+
+  async function saveMetaAndClose() {
+    const dirty = meta.name !== initMeta.current.name || meta.day_type !== initMeta.current.day_type;
+    if (dirty) await saveMeta();
+    onClose();
+  }
 
   async function saveMeta() {
     const err = {};
@@ -682,7 +754,10 @@ function MealDialog({ meal, athleteId, onSave, onClose, toast, units }) {
   return (
     <div className="overlay">
       <div className="dialog dialog-xl" style={{maxHeight:"92vh",overflowY:"auto"}}>
-        <div className="dialog-title"><Icon name="apple" size={20}/>{isNew?"New Meal":"Edit Meal"}</div>
+        <div className="dialog-title" style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <span style={{display:"flex",alignItems:"center",gap:8}}><Icon name="apple" size={20}/>{isNew?"New Meal":"Edit Meal"}</span>
+          <DialogCloseBtn onClose={onClose}/>
+        </div>
 
         {/* Meal meta */}
         <div className="form-grid" style={{marginBottom:16}}>
@@ -773,7 +848,9 @@ function MealDialog({ meal, athleteId, onSave, onClose, toast, units }) {
         </>)}
 
         <div className="dialog-actions">
-          <button className="btn btn-primary" onClick={onClose}>Done</button>
+          <button className="btn btn-primary" onClick={saveMetaAndClose} disabled={savingMeta}>
+            {savingMeta?<Spinner/>:<Icon name="check" size={14}/>}Done
+          </button>
         </div>
 
         {showItemForm && mealId && (
@@ -861,9 +938,11 @@ function MealPlanTab({ athleteId, toast, units }) {
   async function deleteMeal(id) {
     const ok = await confirm("Delete Meal","Delete this meal and all its food items?");
     if (!ok) return;
-    await apiDel(`/athletes/${athleteId}/meals/${id}`);
-    loadAll();
-    toast.show("Meal deleted","success");
+    try {
+      await apiDel(`/athletes/${athleteId}/meals/${id}`);
+      loadAll();
+      toast.show("Meal deleted","success");
+    } catch(err) { toast.show(err.message || "Failed to delete meal", "error"); }
   }
 
   const filteredMeals = meals.filter(m => m.day_type === dayFilter);

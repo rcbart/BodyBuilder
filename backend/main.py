@@ -32,7 +32,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:8000", "http://127.0.0.1:8000"],
     allow_credentials=True,
-    allow_methods=["GET","POST","PUT","DELETE","OPTIONS"],
+    allow_methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
     allow_headers=["Content-Type","Accept"],
 )
 
@@ -398,9 +398,12 @@ def init_db():
         name TEXT DEFAULT '', protein REAL DEFAULT 0, carbs REAL DEFAULT 0,
         fat REAL DEFAULT 0, fiber REAL DEFAULT 0, sodium REAL DEFAULT 0,
         potassium REAL DEFAULT 0, calories REAL DEFAULT 0,
-        serving_size TEXT DEFAULT '100g', category TEXT DEFAULT 'general',
+        serving_size TEXT DEFAULT '100g', serving_g REAL DEFAULT 100,
+        category TEXT DEFAULT 'general',
         FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE
     )""")
+    if not _col_exists(conn, "nutrition_foods", "serving_g"):
+        c.execute("ALTER TABLE nutrition_foods ADD COLUMN serving_g REAL DEFAULT 100")
 
     # ── food_swaps ──
     c.execute("""CREATE TABLE IF NOT EXISTS food_swaps (
@@ -472,6 +475,8 @@ def init_db():
         c.execute("ALTER TABLE athletes ADD COLUMN status TEXT DEFAULT 'active'")
     if not _col_exists(conn, "workout_plans", "warmup_instructions"):
         c.execute("ALTER TABLE workout_plans ADD COLUMN warmup_instructions TEXT DEFAULT ''")
+    if not _col_exists(conn, "workout_plans", "rest_days"):
+        c.execute("ALTER TABLE workout_plans ADD COLUMN rest_days TEXT DEFAULT '[]'")
 
     # ── supplements ──
     c.execute("""CREATE TABLE IF NOT EXISTS supplements (
@@ -529,6 +534,15 @@ def init_db():
         from_name TEXT DEFAULT 'BodyBuilder Coach', use_tls INTEGER DEFAULT 1
     )""")
     c.execute("INSERT OR IGNORE INTO smtp_settings (id) VALUES (1)")
+
+    # ── Performance indexes ──
+    c.execute("CREATE INDEX IF NOT EXISTS idx_meal_items_meal_id         ON meal_items(meal_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_meals_athlete_id           ON meals(athlete_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_supplements_athlete_id     ON supplements(athlete_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_workout_exercises_session  ON workout_exercises(session_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_workout_sessions_plan      ON workout_sessions(plan_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_food_swaps_athlete_id      ON food_swaps(athlete_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_nutrition_foods_athlete_id ON nutrition_foods(athlete_id)")
 
     conn.commit()
     conn.close()
@@ -833,6 +847,7 @@ class FoodModel(BaseModel):
     potassium: Optional[float] = 0
     calories: Optional[float] = 0
     serving_size: Optional[str] = "100g"
+    serving_g: Optional[float] = 100
     category: Optional[str] = "general"
     @field_validator("name")
     @classmethod
@@ -846,6 +861,12 @@ class FoodModel(BaseModel):
         v = (v or "100g").strip()
         if len(v) > 50: raise ValueError("Max 50 characters")
         return v
+    @field_validator("serving_g")
+    @classmethod
+    def serving_g_v(cls, v):
+        v = v or 100
+        if v <= 0 or v > 9999: raise ValueError("Serving size must be 1–9999 g")
+        return round(v, 1)
     @field_validator("protein","carbs","fat","fiber","calories")
     @classmethod
     def macro_v(cls, v):
@@ -937,14 +958,18 @@ class SendProgramModel(BaseModel):
     @field_validator("to_email")
     @classmethod
     def email_v(cls, v):
+        # Strip and reject embedded newlines to prevent SMTP header injection
+        v = (v or "").strip().replace("\r", "").replace("\n", "")
         if not v or "@" not in v: raise ValueError("Valid email required")
-        return v.strip()
+        return v
     @field_validator("subject")
     @classmethod
     def subj_v(cls, v):
-        if not v or not v.strip(): raise ValueError("Subject required")
-        if len(v)>200: raise ValueError("Max 200 chars")
-        return v.strip()
+        # Strip and reject embedded newlines to prevent SMTP header injection
+        v = (v or "").strip().replace("\r", "").replace("\n", "")
+        if not v: raise ValueError("Subject required")
+        if len(v) > 200: raise ValueError("Max 200 chars")
+        return v
 
 
 class WorkoutPlanModel(BaseModel):
@@ -955,6 +980,7 @@ class WorkoutPlanModel(BaseModel):
     notes: Optional[str] = ""
     warmup_instructions: Optional[str] = ""
     sort_order: Optional[int] = 0
+    rest_days: Optional[List[str]] = []
     @field_validator("title")
     @classmethod
     def title_v(cls, v):
@@ -971,6 +997,16 @@ class WorkoutPlanModel(BaseModel):
     @classmethod
     def plan_date_v(cls, v, info):
         return _valid_date_or_empty(v, info.field_name)
+
+
+class RestDayToggleModel(BaseModel):
+    day: str
+    @field_validator("day")
+    @classmethod
+    def day_v(cls, v):
+        valid = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
+        if v not in valid: raise ValueError(f"Invalid day '{v}'")
+        return v
 
 
 class WorkoutSessionModel(BaseModel):
@@ -1291,6 +1327,8 @@ def update_athlete(athlete_id: int, body: AthleteModel):
 @app.delete("/api/athletes/{athlete_id}")
 def delete_athlete(athlete_id: int):
     conn = get_db()
+    if not conn.execute("SELECT id FROM athletes WHERE id=?", (athlete_id,)).fetchone():
+        conn.close(); raise HTTPException(404, "Athlete not found")
     conn.execute("DELETE FROM athletes WHERE id=?", (athlete_id,))
     conn.commit(); conn.close()
     return {"deleted": athlete_id}
@@ -1530,10 +1568,10 @@ def get_foods(athlete_id: int, category: Optional[str] = None):
 def create_food(athlete_id: int, body: FoodModel):
     conn = get_db()
     cur = conn.execute("""INSERT INTO nutrition_foods
-        (athlete_id,name,protein,carbs,fat,fiber,sodium,potassium,calories,serving_size,category)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+        (athlete_id,name,protein,carbs,fat,fiber,sodium,potassium,calories,serving_size,serving_g,category)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
         (athlete_id,body.name,body.protein,body.carbs,body.fat,body.fiber,
-         body.sodium,body.potassium,body.calories,body.serving_size,body.category))
+         body.sodium,body.potassium,body.calories,body.serving_size,body.serving_g,body.category))
     fid = cur.lastrowid; conn.commit()
     row = conn.execute("SELECT * FROM nutrition_foods WHERE id=?", (fid,)).fetchone()
     conn.close(); return dict(row)
@@ -1541,14 +1579,17 @@ def create_food(athlete_id: int, body: FoodModel):
 @app.put("/api/athletes/{athlete_id}/foods/{food_id}")
 def update_food(athlete_id: int, food_id: int, body: FoodModel):
     conn = get_db()
+    # Authorise before mutating
+    if not conn.execute("SELECT id FROM nutrition_foods WHERE id=? AND athlete_id=?",
+                        (food_id, athlete_id)).fetchone():
+        conn.close(); raise HTTPException(404)
     conn.execute("""UPDATE nutrition_foods SET name=?,protein=?,carbs=?,fat=?,fiber=?,sodium=?,
-        potassium=?,calories=?,serving_size=?,category=? WHERE id=? AND athlete_id=?""",
+        potassium=?,calories=?,serving_size=?,serving_g=?,category=? WHERE id=? AND athlete_id=?""",
         (body.name,body.protein,body.carbs,body.fat,body.fiber,body.sodium,body.potassium,
-         body.calories,body.serving_size,body.category,food_id,athlete_id))
+         body.calories,body.serving_size,body.serving_g,body.category,food_id,athlete_id))
     conn.commit()
     row = conn.execute("SELECT * FROM nutrition_foods WHERE id=?", (food_id,)).fetchone()
     conn.close()
-    if not row: raise HTTPException(404)
     return dict(row)
 
 @app.delete("/api/athletes/{athlete_id}/foods/{food_id}")
@@ -1763,6 +1804,7 @@ def _load_plan(conn, plan_id):
     row = conn.execute("SELECT * FROM workout_plans WHERE id=?", (plan_id,)).fetchone()
     if not row: raise HTTPException(404, "Plan not found")
     plan = dict(row)
+    plan["rest_days"] = json.loads(plan.get("rest_days") or "[]")
     sessions = conn.execute("SELECT * FROM workout_sessions WHERE plan_id=? ORDER BY sort_order, day_of_week",
                             (plan_id,)).fetchall()
     plan["sessions"] = []
@@ -1790,18 +1832,18 @@ def list_workout_plans(athlete_id: int):
 @app.post("/api/athletes/{athlete_id}/workout-plans")
 def create_workout_plan(athlete_id: int, body: WorkoutPlanModel):
     conn = get_db()
-    cur = conn.execute("""INSERT INTO workout_plans (athlete_id,title,start_date,end_date,notes,warmup_instructions,sort_order)
-        VALUES (?,?,?,?,?,?,?)""",
-        (athlete_id,body.title,body.start_date,body.end_date,body.notes,body.warmup_instructions,body.sort_order))
+    cur = conn.execute("""INSERT INTO workout_plans (athlete_id,title,start_date,end_date,notes,warmup_instructions,sort_order,rest_days)
+        VALUES (?,?,?,?,?,?,?,?)""",
+        (athlete_id,body.title,body.start_date,body.end_date,body.notes,body.warmup_instructions,body.sort_order,json.dumps(body.rest_days or [])))
     pid = cur.lastrowid; conn.commit()
     result = _load_plan(conn, pid); conn.close(); return result
 
 @app.put("/api/athletes/{athlete_id}/workout-plans/{plan_id}")
 def update_workout_plan(athlete_id: int, plan_id: int, body: WorkoutPlanModel):
     conn = get_db()
-    conn.execute("""UPDATE workout_plans SET title=?,start_date=?,end_date=?,notes=?,warmup_instructions=?,sort_order=?
+    conn.execute("""UPDATE workout_plans SET title=?,start_date=?,end_date=?,notes=?,warmup_instructions=?,sort_order=?,rest_days=?
         WHERE id=? AND athlete_id=?""",
-        (body.title,body.start_date,body.end_date,body.notes,body.warmup_instructions,body.sort_order,plan_id,athlete_id))
+        (body.title,body.start_date,body.end_date,body.notes,body.warmup_instructions,body.sort_order,json.dumps(body.rest_days or []),plan_id,athlete_id))
     conn.commit()
     result = _load_plan(conn, plan_id); conn.close(); return result
 
@@ -1811,6 +1853,22 @@ def delete_workout_plan(athlete_id: int, plan_id: int):
     conn.execute("DELETE FROM workout_plans WHERE id=? AND athlete_id=?", (plan_id,athlete_id))
     conn.commit(); conn.close()
     return {"deleted": plan_id}
+
+@app.patch("/api/athletes/{athlete_id}/workout-plans/{plan_id}/rest-days")
+def toggle_rest_day(athlete_id: int, plan_id: int, body: RestDayToggleModel):
+    conn = get_db()
+    row = conn.execute("SELECT rest_days FROM workout_plans WHERE id=? AND athlete_id=?", (plan_id, athlete_id)).fetchone()
+    if not row: conn.close(); raise HTTPException(404, "Plan not found")
+    current = set(json.loads(row["rest_days"] or "[]"))
+    if body.day in current:
+        current.discard(body.day)
+    else:
+        current.add(body.day)
+    conn.execute("UPDATE workout_plans SET rest_days=? WHERE id=?", (json.dumps(sorted(current)), plan_id))
+    conn.commit()
+    result = _load_plan(conn, plan_id)
+    conn.close()
+    return result
 
 
 # ─── Workout Sessions ─────────────────────────────────────────────────────────
@@ -2011,21 +2069,38 @@ def _build_workbook(athlete_id: int, plan_id: int = None):
         raise HTTPException(500, "openpyxl not installed. Run: pip install openpyxl")
 
     conn = get_db()
-    ath = athlete_row_to_dict(conn.execute("SELECT * FROM athletes WHERE id=?", (athlete_id,)).fetchone())
-    prog_row = conn.execute("SELECT * FROM programs WHERE athlete_id=?", (athlete_id,)).fetchone()
-    prog = dict(prog_row) if prog_row else {}
-    mp_row = conn.execute("SELECT * FROM meal_plans WHERE athlete_id=?", (athlete_id,)).fetchone()
-    mp = dict(mp_row) if mp_row else {}
-    foods = [dict(r) for r in conn.execute("SELECT * FROM nutrition_foods WHERE athlete_id=? ORDER BY name", (athlete_id,)).fetchall()]
-    if plan_id is not None:
-        plan_ids = conn.execute("SELECT id FROM workout_plans WHERE athlete_id=? AND id=?", (athlete_id, plan_id)).fetchall()
-    else:
-        plan_ids = conn.execute("SELECT id FROM workout_plans WHERE athlete_id=? ORDER BY sort_order, title", (athlete_id,)).fetchall()
-    plans = [_load_plan(conn, r["id"]) for r in plan_ids]
-    dc_row = conn.execute(
-        "SELECT additional_calories, multiplier FROM activity_calories WHERE athlete_id=? AND level=?",
-        (athlete_id, ath["activity_level"])).fetchone()
-    conn.close()
+    try:
+        ath = athlete_row_to_dict(conn.execute("SELECT * FROM athletes WHERE id=?", (athlete_id,)).fetchone())
+        prog_row = conn.execute("SELECT * FROM programs WHERE athlete_id=?", (athlete_id,)).fetchone()
+        prog = dict(prog_row) if prog_row else {}
+        mp_row = conn.execute("SELECT * FROM meal_plans WHERE athlete_id=?", (athlete_id,)).fetchone()
+        mp = dict(mp_row) if mp_row else {}
+        # Fetch all meals with their items for this athlete
+        meals_raw = conn.execute(
+            "SELECT id, name, day_type, sort_order FROM meals WHERE athlete_id=? ORDER BY day_type, sort_order, name",
+            (athlete_id,)).fetchall()
+        meals_for_plan = []
+        for m_row in meals_raw:
+            m = dict(m_row)
+            items_raw = conn.execute(
+                """SELECT food_name, source_type, weight_g, serving_size, quantity,
+                          protein_g, carbs_g, fat_g, fiber_g, sodium_mg, potassium_mg, sort_order
+                   FROM meal_items WHERE meal_id=? ORDER BY source_type, sort_order""",
+                (m["id"],)).fetchall()
+            m["items"] = [dict(i) for i in items_raw]
+            meals_for_plan.append(m)
+        # Flatten all items for Food Swaps sheet
+        meal_items_for_swaps = [i for m in meals_for_plan for i in m["items"]]
+        if plan_id is not None:
+            plan_ids = conn.execute("SELECT id FROM workout_plans WHERE athlete_id=? AND id=?", (athlete_id, plan_id)).fetchall()
+        else:
+            plan_ids = conn.execute("SELECT id FROM workout_plans WHERE athlete_id=? ORDER BY sort_order, title", (athlete_id,)).fetchall()
+        plans = [_load_plan(conn, r["id"]) for r in plan_ids]
+        dc_row = conn.execute(
+            "SELECT additional_calories, multiplier FROM activity_calories WHERE athlete_id=? AND level=?",
+            (athlete_id, ath["activity_level"])).fetchone()
+    finally:
+        conn.close()
     additional_cal = dc_row["additional_calories"] if dc_row else 0
     multiplier_val = dc_row["multiplier"] if dc_row else 1.2
     total_cal = max(0, ath["average"] * multiplier_val + additional_cal - ath["deficit"])
@@ -2115,49 +2190,372 @@ def _build_workbook(athlete_id: int, plan_id: int = None):
 
     # ── Sheet 3: Meal Plan ──
     ws3 = wb.create_sheet("Meal Plan")
-    ws3.row_dimensions[1].height = 24
-    ws3.merge_cells("A1:E1")
-    c = ws3["A1"]; c.value = "Meal Plan & Macro Targets"
-    c.font = HDR_FONT; c.fill = ACCENT; c.alignment = CENTER
+    ws3.row_dimensions[1].height = 28
+    MEAL_COLS = ["Food", "Serving", "Kcal", "Protein (g)", "Carbs (g)", "Fat (g)", "Fiber (g)"]
+    NCOLS3 = len(MEAL_COLS)
+    ws3.merge_cells(f"A1:{get_column_letter(NCOLS3)}1")
+    c = ws3["A1"]; c.value = f"Meal Plan — {ath['name']}"
+    c.font = Font(bold=True, color="FFFFFF", size=14); c.fill = ACCENT; c.alignment = CENTER
 
-    for ci, h in enumerate(["Nutrient", "Unit", "Target", "Actual", "% of Target"], 1):
-        set_hdr(ws3, 2, ci, h, SUBHDR, SUBF)
+    DAY_TYPE_FILLS = {
+        "training":    PatternFill("solid", fgColor="E8F4FD"),
+        "rest":        PatternFill("solid", fgColor="FEF9E7"),
+        "competition": PatternFill("solid", fgColor="FDECEA"),
+    }
+    MEAL_HDR_FILL = PatternFill("solid", fgColor="3A3F5A")
 
-    macro_defs = [
-        ("Protein", "g", "protein"), ("Carbohydrates", "g", "carbs"), ("Fat", "g", "fat"),
-        ("Fiber", "g", "fiber"), ("Sodium", "mg", "sodium"), ("Potassium", "mg", "potassium"),
-    ]
-    for ri, (lbl, unit, key) in enumerate(macro_defs, 3):
-        tgt = mp.get(f"{key}_target", 0); act = mp.get(f"{key}_actual", 0)
-        pct = f"{round((act/tgt)*100)}%" if tgt else "N/A"
-        set_cell(ws3, ri, 1, lbl, bold=True); set_cell(ws3, ri, 2, unit)
-        set_cell(ws3, ri, 3, tgt); set_cell(ws3, ri, 4, act); set_cell(ws3, ri, 5, pct)
+    ri3 = 2
+    if meals_for_plan:
+        current_day = None
+        for meal in meals_for_plan:
+            day_type = meal.get("day_type", "training")
+            # Day-type section header (only when day changes)
+            if day_type != current_day:
+                current_day = day_type
+                ws3.merge_cells(f"A{ri3}:{get_column_letter(NCOLS3)}{ri3}")
+                dc = ws3.cell(row=ri3, column=1, value=f"── {day_type.upper()} DAY ──")
+                dc.font = Font(bold=True, color="FFFFFF", size=11)
+                dc.fill = HDR_FILL; dc.alignment = CENTER
+                ws3.row_dimensions[ri3].height = 20
+                ri3 += 1
 
-    tgt_cal = (mp.get("protein_target",0)*4 + mp.get("carbs_target",0)*4 + mp.get("fat_target",0)*9)
-    act_cal = (mp.get("protein_actual",0)*4 + mp.get("carbs_actual",0)*4 + mp.get("fat_actual",0)*9)
-    ri = len(macro_defs) + 3
-    for ci, val in enumerate(["Calories (calc.)", "kcal", round(tgt_cal,1), round(act_cal,1),
-                               f"{round((act_cal/tgt_cal)*100)}%" if tgt_cal else "N/A"], 1):
-        set_cell(ws3, ri, ci, val, bold=True, fill=GREEN_F)
-    # Header info
-    ri += 2
-    for k, v in [("Athlete", ath["name"]), ("RMR", f"{ath['average']} kcal/day"),
-                  ("Daily Calorie Target", f"{total_cal} kcal/day")]:
-        set_cell(ws3, ri, 1, k, bold=True); set_cell(ws3, ri, 2, v); ri += 1
-    auto_width(ws3)
+            # Meal name header
+            meal_name = meal.get("name") or "Meal"
+            meal_kcal = sum(
+                ((it.get("protein_g",0)*4) + (it.get("carbs_g",0)*4) + (it.get("fat_g",0)*9)) * (it.get("quantity",1) or 1)
+                for it in meal["items"]
+            )
+            ws3.merge_cells(f"A{ri3}:{get_column_letter(NCOLS3-1)}{ri3}")
+            mc = ws3.cell(row=ri3, column=1, value=meal_name)
+            mc.font = Font(bold=True, color="FFFFFF", size=11); mc.fill = MEAL_HDR_FILL; mc.alignment = LEFT
+            kcal_c = ws3.cell(row=ri3, column=NCOLS3, value=round(meal_kcal))
+            kcal_c.font = Font(bold=True, color="FFFFFF", size=11); kcal_c.fill = MEAL_HDR_FILL; kcal_c.alignment = CENTER
+            ws3.row_dimensions[ri3].height = 18
+            ri3 += 1
 
-    # ── Sheet 4: Nutrition Database ──
-    ws4 = wb.create_sheet("Nutrition Database")
-    if foods:
-        hdrs = ["Name","Category","Serving","Calories","Protein (g)","Carbs (g)","Fat (g)","Fiber (g)","Sodium (mg)","Potassium (mg)"]
-        for ci, h in enumerate(hdrs, 1): set_hdr(ws4, 1, ci, h, SUBHDR, SUBF)
-        for ri, f in enumerate(foods, 2):
-            for ci, val in enumerate([f["name"],f["category"],f["serving_size"],f["calories"],
-                                       f["protein"],f["carbs"],f["fat"],f["fiber"],f["sodium"],f["potassium"]], 1):
-                set_cell(ws4, ri, ci, val)
+            if meal["items"]:
+                # Column headers
+                for ci, h in enumerate(MEAL_COLS, 1):
+                    set_hdr(ws3, ri3, ci, h, SUBHDR, SUBF)
+                ri3 += 1
+
+                # Food rows
+                row_fill = DAY_TYPE_FILLS.get(day_type, WHITE_F)
+                meal_totals = {"protein_g":0,"carbs_g":0,"fat_g":0,"fiber_g":0,"kcal":0}
+                for it in meal["items"]:
+                    qty = it.get("quantity", 1) or 1
+                    p = (it.get("protein_g",0) or 0) * qty
+                    cb = (it.get("carbs_g",0) or 0) * qty
+                    fa = (it.get("fat_g",0) or 0) * qty
+                    fi = (it.get("fiber_g",0) or 0) * qty
+                    ik = round(p*4 + cb*4 + fa*9)
+                    wg = it.get("weight_g", 0) or 0
+                    sv = it.get("serving_size") or (f"{round(wg)}g" if wg else "")
+                    set_cell(ws3, ri3, 1, it["food_name"], bold=True, fill=row_fill)
+                    set_cell(ws3, ri3, 2, sv,              fill=row_fill)
+                    set_cell(ws3, ri3, 3, ik,              fill=row_fill, align=CENTER)
+                    set_cell(ws3, ri3, 4, round(p,1),      fill=row_fill, align=CENTER)
+                    set_cell(ws3, ri3, 5, round(cb,1),     fill=row_fill, align=CENTER)
+                    set_cell(ws3, ri3, 6, round(fa,1),     fill=row_fill, align=CENTER)
+                    set_cell(ws3, ri3, 7, round(fi,1),     fill=row_fill, align=CENTER)
+                    meal_totals["protein_g"] += p; meal_totals["carbs_g"] += cb
+                    meal_totals["fat_g"] += fa;   meal_totals["fiber_g"] += fi
+                    meal_totals["kcal"] += ik
+                    ri3 += 1
+
+                # Meal totals row
+                set_cell(ws3, ri3, 1, "MEAL TOTAL", bold=True, fill=GREEN_F)
+                set_cell(ws3, ri3, 2, "",            fill=GREEN_F)
+                set_cell(ws3, ri3, 3, round(meal_totals["kcal"]),    bold=True, fill=GREEN_F, align=CENTER)
+                set_cell(ws3, ri3, 4, round(meal_totals["protein_g"],1), bold=True, fill=GREEN_F, align=CENTER)
+                set_cell(ws3, ri3, 5, round(meal_totals["carbs_g"],1),   bold=True, fill=GREEN_F, align=CENTER)
+                set_cell(ws3, ri3, 6, round(meal_totals["fat_g"],1),     bold=True, fill=GREEN_F, align=CENTER)
+                set_cell(ws3, ri3, 7, round(meal_totals["fiber_g"],1),   bold=True, fill=GREEN_F, align=CENTER)
+                ri3 += 1
+            else:
+                ws3.merge_cells(f"A{ri3}:{get_column_letter(NCOLS3)}{ri3}")
+                ec = ws3.cell(row=ri3, column=1, value="No foods added to this meal yet.")
+                ec.font = Font(color="999999", size=10, italic=True); ec.alignment = LEFT
+                ri3 += 1
+
+            ri3 += 1  # blank row between meals
+
+        # Grand daily total row
+        # Single pass over all items for daily totals
+        total_kcal_day = total_p = total_cb = total_fat = 0.0
+        for m in meals_for_plan:
+            for it in m["items"]:
+                qty = it.get("quantity", 1) or 1
+                p   = (it.get("protein_g", 0) or 0) * qty
+                cb  = (it.get("carbs_g",   0) or 0) * qty
+                fat = (it.get("fat_g",     0) or 0) * qty
+                total_p        += p
+                total_cb       += cb
+                total_fat      += fat
+                total_kcal_day += p * 4 + cb * 4 + fat * 9
+        ws3.merge_cells(f"A{ri3}:{get_column_letter(NCOLS3)}{ri3}")
+        ws3.row_dimensions[ri3].height = 22
+        ri3 += 1
+        for ci, val in enumerate([
+            "DAILY TOTAL", "", round(total_kcal_day),
+            round(total_p,1), round(total_cb,1), round(total_fat,1), ""
+        ], 1):
+            c = ws3.cell(row=ri3, column=ci, value=val)
+            c.font = Font(bold=True, color="FFFFFF", size=11)
+            c.fill = ACCENT; c.alignment = CENTER if ci > 1 else LEFT; c.border = BORDER
     else:
-        ws4["A1"] = "No foods in nutrition database"
+        ws3.merge_cells(f"A2:{get_column_letter(NCOLS3)}2")
+        ec = ws3["A2"]
+        ec.value = "No meals found. Create meals in the Meal Plan tab and add foods to them."
+        ec.font = Font(color="999999", size=10, italic=True); ec.alignment = LEFT
+
+    auto_width(ws3)
+    # Fix column widths for Meal Plan sheet
+    ws3.column_dimensions["A"].width = 34
+    ws3.column_dimensions["B"].width = 22
+
+    # ── Sheet 4: Food Swaps ──
+    # Calorie-matching swap database (values are per 100 g)
+    _SWAP_DB = [
+        # Proteins
+        {"n":"Chicken Breast (raw)",      "cat":"protein", "kcal":165},
+        {"n":"Chicken Breast (cooked)",   "cat":"protein", "kcal":187},
+        {"n":"Chicken Thigh (raw)",        "cat":"protein", "kcal":177},
+        {"n":"Turkey Breast",             "cat":"protein", "kcal":135},
+        {"n":"Ground Turkey 93%",         "cat":"protein", "kcal":163},
+        {"n":"Lean Ground Beef 93%",      "cat":"protein", "kcal":172},
+        {"n":"Lean Ground Beef 96%",      "cat":"protein", "kcal":137},
+        {"n":"Beef Steak (Sirloin)",      "cat":"protein", "kcal":207},
+        {"n":"Pork Tenderloin",           "cat":"protein", "kcal":143},
+        {"n":"Bison",                     "cat":"protein", "kcal":146},
+        {"n":"Salmon (Atlantic)",         "cat":"protein", "kcal":208},
+        {"n":"Tuna (canned in water)",    "cat":"protein", "kcal":109},
+        {"n":"Tilapia",                   "cat":"protein", "kcal":96},
+        {"n":"Cod",                       "cat":"protein", "kcal":82},
+        {"n":"Shrimp",                    "cat":"protein", "kcal":99},
+        {"n":"Whitefish",                 "cat":"protein", "kcal":134},
+        {"n":"Whole Egg",                 "cat":"protein", "kcal":155},
+        {"n":"Egg White",                 "cat":"protein", "kcal":52},
+        {"n":"Whey Protein Powder",       "cat":"protein", "kcal":400},
+        {"n":"Casein Protein Powder",     "cat":"protein", "kcal":371},
+        {"n":"Cottage Cheese (1%)",       "cat":"protein", "kcal":72},
+        {"n":"Cottage Cheese (2%)",       "cat":"protein", "kcal":84},
+        {"n":"Canned Salmon",             "cat":"protein", "kcal":139},
+        {"n":"Tempeh",                    "cat":"protein", "kcal":195},
+        # Carbs
+        {"n":"White Rice (cooked)",       "cat":"carb", "kcal":130},
+        {"n":"Brown Rice (cooked)",       "cat":"carb", "kcal":123},
+        {"n":"Jasmine Rice (cooked)",     "cat":"carb", "kcal":129},
+        {"n":"Oats (dry)",                "cat":"carb", "kcal":389},
+        {"n":"Oats (cooked)",             "cat":"carb", "kcal":71},
+        {"n":"Sweet Potato (raw)",        "cat":"carb", "kcal":86},
+        {"n":"Sweet Potato (cooked)",     "cat":"carb", "kcal":90},
+        {"n":"White Potato",              "cat":"carb", "kcal":77},
+        {"n":"Pasta (dry)",               "cat":"carb", "kcal":371},
+        {"n":"Whole Wheat Pasta (dry)",   "cat":"carb", "kcal":348},
+        {"n":"Bread (Whole Wheat)",       "cat":"carb", "kcal":247},
+        {"n":"Sourdough Bread",           "cat":"carb", "kcal":289},
+        {"n":"Quinoa (cooked)",           "cat":"carb", "kcal":120},
+        {"n":"Lentils (cooked)",          "cat":"carb", "kcal":116},
+        {"n":"Black Beans (cooked)",      "cat":"carb", "kcal":132},
+        {"n":"Chickpeas (cooked)",        "cat":"carb", "kcal":164},
+        {"n":"Bagel (plain)",             "cat":"carb", "kcal":272},
+        # Fats
+        {"n":"Olive Oil",                 "cat":"fat", "kcal":884},
+        {"n":"Coconut Oil",               "cat":"fat", "kcal":862},
+        {"n":"Avocado",                   "cat":"fat", "kcal":160},
+        {"n":"Almonds",                   "cat":"fat", "kcal":579},
+        {"n":"Walnuts",                   "cat":"fat", "kcal":654},
+        {"n":"Cashews",                   "cat":"fat", "kcal":553},
+        {"n":"Peanuts",                   "cat":"fat", "kcal":567},
+        {"n":"Macadamia Nuts",            "cat":"fat", "kcal":718},
+        {"n":"Peanut Butter (natural)",   "cat":"fat", "kcal":598},
+        {"n":"Almond Butter",             "cat":"fat", "kcal":614},
+        {"n":"Chia Seeds",                "cat":"fat", "kcal":486},
+        {"n":"Flaxseed",                  "cat":"fat", "kcal":534},
+        {"n":"Hemp Seeds",                "cat":"fat", "kcal":553},
+        # Vegetables
+        {"n":"Broccoli",                  "cat":"vegetable", "kcal":34},
+        {"n":"Spinach",                   "cat":"vegetable", "kcal":23},
+        {"n":"Kale",                      "cat":"vegetable", "kcal":49},
+        {"n":"Asparagus",                 "cat":"vegetable", "kcal":20},
+        {"n":"Green Beans",               "cat":"vegetable", "kcal":31},
+        {"n":"Bell Pepper",               "cat":"vegetable", "kcal":31},
+        {"n":"Zucchini",                  "cat":"vegetable", "kcal":17},
+        {"n":"Cauliflower",               "cat":"vegetable", "kcal":25},
+        {"n":"Cucumber",                  "cat":"vegetable", "kcal":15},
+        {"n":"Mushrooms",                 "cat":"vegetable", "kcal":22},
+        {"n":"Brussels Sprouts",          "cat":"vegetable", "kcal":43},
+        {"n":"Tomato",                    "cat":"vegetable", "kcal":18},
+        {"n":"Mixed Greens / Lettuce",    "cat":"vegetable", "kcal":14},
+        {"n":"Peas",                      "cat":"vegetable", "kcal":81},
+        {"n":"Edamame",                   "cat":"vegetable", "kcal":122},
+        {"n":"Beets",                     "cat":"vegetable", "kcal":43},
+        # Fruits
+        {"n":"Banana",                    "cat":"fruit", "kcal":89},
+        {"n":"Apple",                     "cat":"fruit", "kcal":52},
+        {"n":"Blueberries",               "cat":"fruit", "kcal":57},
+        {"n":"Strawberries",              "cat":"fruit", "kcal":32},
+        {"n":"Blackberries",              "cat":"fruit", "kcal":43},
+        {"n":"Raspberries",               "cat":"fruit", "kcal":52},
+        {"n":"Mango",                     "cat":"fruit", "kcal":60},
+        {"n":"Orange",                    "cat":"fruit", "kcal":47},
+        {"n":"Pineapple",                 "cat":"fruit", "kcal":50},
+        {"n":"Grapes",                    "cat":"fruit", "kcal":69},
+        {"n":"Watermelon",                "cat":"fruit", "kcal":30},
+        {"n":"Cherries",                  "cat":"fruit", "kcal":50},
+        {"n":"Peach",                     "cat":"fruit", "kcal":39},
+        {"n":"Pear",                      "cat":"fruit", "kcal":57},
+        {"n":"Kiwi",                      "cat":"fruit", "kcal":61},
+        # Dairy
+        {"n":"Greek Yogurt (non-fat)",    "cat":"dairy", "kcal":59},
+        {"n":"Greek Yogurt (2%)",         "cat":"dairy", "kcal":73},
+        {"n":"Milk (2%)",                 "cat":"dairy", "kcal":50},
+        {"n":"Milk (whole)",              "cat":"dairy", "kcal":61},
+        {"n":"Mozzarella (part-skim)",    "cat":"dairy", "kcal":254},
+        {"n":"Cheddar Cheese",            "cat":"dairy", "kcal":403},
+        {"n":"Ricotta (part-skim)",       "cat":"dairy", "kcal":138},
+    ]
+
+    def _find_swaps(food_name, source_type, weight_g, target_kcal, max_swaps=5):
+        """Return list of {name, serving_g, serving_label} calorie-matched to target_kcal."""
+        if target_kcal <= 0 or weight_g <= 0:
+            return []
+        name_lower = food_name.lower()
+        candidates = [f for f in _SWAP_DB
+                      if f["cat"] == source_type
+                      and f["n"].lower() != name_lower
+                      and f["kcal"] > 0]
+        swaps = []
+        for c in candidates:
+            swap_g = target_kcal / (c["kcal"] / 100.0)
+            # sanity: skip unreasonably tiny or large amounts
+            if swap_g < 3 or swap_g > 2000:
+                continue
+            # Round to nearest 5g for clean display; 1g if very small (e.g. oils)
+            if swap_g < 20:
+                rounded = round(swap_g)
+            else:
+                rounded = round(swap_g / 5) * 5
+            swaps.append({"name": c["n"], "g": rounded, "label": f"{rounded}g"})
+        return swaps[:max_swaps]
+
+    def _kcal_for_item(mi):
+        """Compute kcal for a meal item using _SWAP_DB if food is known, else from stored macros."""
+        wg = mi.get("weight_g") or 0
+        name_lower = (mi.get("food_name") or "").lower().strip()
+        db_match = next((f for f in _SWAP_DB if f["n"].lower() == name_lower), None)
+        if db_match and wg > 0:
+            return round(db_match["kcal"] * wg / 100)
+        # fallback: compute from stored macros (scaled by quantity if present)
+        qty = mi.get("quantity", 1) or 1
+        return round((mi.get("protein_g",0)*4 + mi.get("carbs_g",0)*4 + mi.get("fat_g",0)*9) * qty)
+
+    def _serving_label(mi):
+        """Return a serving label consistent with the weight used."""
+        wg = mi.get("weight_g") or 0
+        sv = mi.get("serving_size") or ""
+        if wg > 0:
+            return f"{round(wg)}g"
+        return sv or "100g"
+
+    # Deduplicate meal plan foods: key = food_name (case-insensitive)
+    # Keep the entry with the highest calorie count (most representative serving)
+    seen_foods = {}
+    for mi in meal_items_for_swaps:
+        name = (mi.get("food_name") or "").strip()
+        if not name:
+            continue
+        key = name.lower()
+        item_kcal = _kcal_for_item(mi)
+        if key not in seen_foods or item_kcal > seen_foods[key]["kcal"]:
+            seen_foods[key] = {
+                "food_name":   name,
+                "source_type": mi.get("source_type", "protein"),
+                "weight_g":    mi.get("weight_g") or 0,
+                "serving_size": _serving_label(mi),
+                "kcal":        item_kcal,
+            }
+    plan_foods = sorted(seen_foods.values(), key=lambda x: (x["source_type"], x["food_name"]))
+
+    ws4 = wb.create_sheet("Food Swaps")
+    ws4.row_dimensions[1].height = 28
+    ws4.merge_cells("A1:M1")
+    c4 = ws4["A1"]; c4.value = "Food Swaps — Calorie-Equivalent Alternatives"
+    c4.font = Font(bold=True, color="FFFFFF", size=14); c4.fill = ACCENT; c4.alignment = CENTER
+
+    # Column headers
+    SWAP_HDRS = [
+        "Food (as used in plan)", "Serving Used", "Calories",
+        "Swap 1", "Swap 1 Serving",
+        "Swap 2", "Swap 2 Serving",
+        "Swap 3", "Swap 3 Serving",
+        "Swap 4", "Swap 4 Serving",
+        "Swap 5", "Swap 5 Serving",
+    ]
+    NCOLS4 = len(SWAP_HDRS)
+    for ci, h in enumerate(SWAP_HDRS, 1):
+        set_hdr(ws4, 2, ci, h, SUBHDR, SUBF)
+
+    # Category colour bands for visual grouping
+    CAT_FILLS = {
+        "protein":    PatternFill("solid", fgColor="EAF4FF"),
+        "carb":       PatternFill("solid", fgColor="EAFFF0"),
+        "fat":        PatternFill("solid", fgColor="FFFADF"),
+        "vegetable":  PatternFill("solid", fgColor="F0FFED"),
+        "fruit":      PatternFill("solid", fgColor="FFF0F8"),
+        "dairy":      PatternFill("solid", fgColor="F5F0FF"),
+        "supplement": PatternFill("solid", fgColor="F5F5F5"),
+    }
+
+    SWAP_FILL  = PatternFill("solid", fgColor="FFFFFF")
+    SWAP_FONT  = Font(color="444444", size=10, italic=True)
+    SWAP_G_FONT = Font(color="4F8EF7", size=10, bold=True)
+
+    if plan_foods:
+        for ri, pf in enumerate(plan_foods, 3):
+            row_fill = CAT_FILLS.get(pf["source_type"], WHITE_F)
+            kcal_rounded = round(pf["kcal"])
+            set_cell(ws4, ri, 1, pf["food_name"],    bold=True, fill=row_fill)
+            set_cell(ws4, ri, 2, pf["serving_size"],  fill=row_fill)
+            set_cell(ws4, ri, 3, kcal_rounded,        bold=True, fill=row_fill, align=CENTER)
+
+            swaps = _find_swaps(pf["food_name"], pf["source_type"], pf["weight_g"], pf["kcal"])
+            for si, sw in enumerate(swaps):
+                col_name = 4 + si * 2
+                col_amt  = col_name + 1
+                c_name = ws4.cell(row=ri, column=col_name, value=sw["name"])
+                c_name.font = SWAP_FONT; c_name.fill = SWAP_FILL
+                c_name.alignment = LEFT; c_name.border = BORDER
+                c_amt = ws4.cell(row=ri, column=col_amt, value=sw["label"])
+                c_amt.font = SWAP_G_FONT; c_amt.fill = SWAP_FILL
+                c_amt.alignment = CENTER; c_amt.border = BORDER
+            # Fill any empty swap columns with blank styled cells
+            for si in range(len(swaps), 5):
+                col_name = 4 + si * 2
+                col_amt  = col_name + 1
+                set_cell(ws4, ri, col_name, "", fill=SWAP_FILL)
+                set_cell(ws4, ri, col_amt,  "", fill=SWAP_FILL)
+    else:
+        ws4.merge_cells("A3:M3")
+        c_empty = ws4["A3"]
+        c_empty.value = "No foods found in the meal plan. Add meals and food items to generate swap suggestions."
+        c_empty.font = Font(color="999999", size=10, italic=True)
+        c_empty.alignment = LEFT
+
+    # Notes legend below the table
+    legend_row = (len(plan_foods) + 4) if plan_foods else 5
+    ws4.merge_cells(f"A{legend_row}:M{legend_row}")
+    note = ws4[f"A{legend_row}"]
+    note.value = "ℹ️  Serving sizes are calorie-matched to the original food. Macros will differ — adjust quantities to meet specific targets."
+    note.font = Font(color="666666", size=9, italic=True)
+    note.alignment = LEFT
+
     auto_width(ws4)
+    # Fix narrow swap-amount columns
+    for si in range(5):
+        col_letter = get_column_letter(5 + si * 2)
+        ws4.column_dimensions[col_letter].width = max(ws4.column_dimensions[col_letter].width, 14)
 
     # ── Sheets 5+: One sheet per workout plan ──
     DOW = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
@@ -2181,11 +2579,12 @@ def _build_workbook(athlete_id: int, plan_id: int = None):
         _merge_row(ws, row, ncols, label,
                    font=Font(bold=True, color="FFFFFF", size=10), fill=SUBHDR, align=LEFT)
         row += 1
-        # Each paragraph as its own wrapped row; Excel auto-sizes height
+        # Each paragraph as its own wrapped row
+        # Height: estimate display lines = ceil(chars / ~150 chars per merged row), 14pt each
         for line in (text or "").splitlines() or [""]:
             _merge_row(ws, row, ncols, line, font=BODY_FONT, fill=NOTE_FILL, align=WRAP_LEFT)
-            # Height hint: ~15pt per wrapped line estimate; let Excel expand as needed
-            ws.row_dimensions[row].height = max(30, min(len(line) // 6 * 15, 120))
+            display_lines = max(1, -(-len(line) // 150))   # ceiling division
+            ws.row_dimensions[row].height = max(14, display_lines * 14)
             row += 1
         return row + 1  # blank gap
 
@@ -2233,15 +2632,35 @@ def _build_workbook(athlete_id: int, plan_id: int = None):
 
         # ── Sessions grouped by day of week ──
         sessions_by_dow = {d: [s for s in plan["sessions"] if s["day_of_week"]==d] for d in DOW}
+        rest_day_set = set(plan.get("rest_days") or [])
+        REST_FILL = PatternFill("solid", fgColor="E8E8E8")   # light grey for rest days
+
+        EMPTY_FILL = PatternFill("solid", fgColor="F5F5F5")   # very light grey for empty days
 
         for day in DOW:
             day_sessions = sessions_by_dow.get(day, [])
-            if not day_sessions: continue
+            is_rest = day in rest_day_set
 
-            # Day header
-            _merge_row(wsw, cur_row, NCOLS, f"📅  {day}",
-                       font=Font(bold=True, color="FFFFFF", size=11), fill=SUBHDR, align=LEFT)
+            # Day header — always shown for all 7 days
+            day_label = f"🛌  {day}  — Rest / Recovery" if is_rest else f"📅  {day}"
+            day_hdr_fill = REST_FILL if is_rest else SUBHDR
+            day_hdr_font = Font(bold=True, color="888888" if is_rest else "FFFFFF", size=11)
+            _merge_row(wsw, cur_row, NCOLS, day_label,
+                       font=day_hdr_font, fill=day_hdr_fill, align=LEFT)
             cur_row += 1
+
+            # Rest / no-session placeholder rows
+            if not day_sessions:
+                if is_rest:
+                    placeholder = "Active recovery, mobility work, or full rest recommended."
+                else:
+                    placeholder = "No sessions scheduled."
+                _merge_row(wsw, cur_row, NCOLS, placeholder,
+                           font=Font(italic=True, color="AAAAAA", size=10),
+                           fill=EMPTY_FILL if not is_rest else REST_FILL, align=LEFT)
+                wsw.row_dimensions[cur_row].height = 16
+                cur_row += 2   # row + spacer
+                continue
 
             for sess in day_sessions:
                 # Session title
@@ -2256,7 +2675,8 @@ def _build_workbook(athlete_id: int, plan_id: int = None):
                 if sess.get("session_notes"):
                     _merge_row(wsw, cur_row, NCOLS, f"Session notes: {sess['session_notes']}",
                                font=BODY_FONT, fill=NOTE_FILL, align=WRAP_LEFT)
-                    wsw.row_dimensions[cur_row].height = max(30, min(len(sess['session_notes']) // 6 * 15, 120))
+                    _lines = max(1, -(-len(sess['session_notes']) // 150))
+                    wsw.row_dimensions[cur_row].height = max(14, _lines * 14)
                     cur_row += 1
 
                 if sess.get("exercises"):
@@ -2355,7 +2775,8 @@ def _build_workbook(athlete_id: int, plan_id: int = None):
                             c_wu.alignment = WRAP_LEFT
                             c_wu.border    = BORDER
                             c_wu.fill      = WARM_FILL
-                            wsw.row_dimensions[cur_row].height = max(30, min(len(wu_instr) // 8 * 15, 120))
+                            _wu_lines = max(1, -(-len(wu_instr) // 150))
+                            wsw.row_dimensions[cur_row].height = max(14, _wu_lines * 14)
                             cur_row += 1
 
                 cur_row += 1  # spacer row between sessions
@@ -2387,13 +2808,20 @@ def export_xlsx(athlete_id: int):
 
 @app.get("/api/athletes/{athlete_id}/workout-plans/{plan_id}/export-xlsx")
 def export_plan_xlsx(athlete_id: int, plan_id: int):
-    wb = _build_workbook(athlete_id, plan_id=plan_id)
+    import traceback
+    try:
+        wb = _build_workbook(athlete_id, plan_id=plan_id)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        traceback.print_exc()
+        raise HTTPException(500, f"Export error: {exc}")
     conn = get_db()
     plan_row = conn.execute("SELECT title FROM workout_plans WHERE id=? AND athlete_id=?", (plan_id, athlete_id)).fetchone()
     conn.close()
     if not plan_row:
         raise HTTPException(404, "Plan not found")
-    safe_title = "".join(c for c in plan_row["title"] if c.isalnum() or c in " _-").strip() or "plan"
+    safe_title = "".join(ch for ch in plan_row["title"] if ch.isalnum() or ch in " _-").strip() or "plan"
     filename = f"{safe_title}_workout.xlsx"
     buf = io.BytesIO()
     wb.save(buf); buf.seek(0)

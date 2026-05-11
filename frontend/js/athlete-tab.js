@@ -24,7 +24,10 @@ function ProgramDialog({ data, athleteId, onSave, onClose }) {
   return (
     <div className="overlay">
       <div className="dialog">
-        <div className="dialog-title"><Icon name="clipboard" size={20} />Program Details</div>
+        <div className="dialog-title" style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <span style={{display:"flex",alignItems:"center",gap:8}}><Icon name="clipboard" size={20} />Program Details</span>
+          <DialogCloseBtn onClose={onClose}/>
+        </div>
         <div className="form-grid" style={{ marginBottom: 16 }}>
           <FF label="Start Date"><input type="date" value={f.start_date} onChange={ev => setF(p => ({ ...p, start_date: ev.target.value }))} /></FF>
           <FF label="End Date" error={e.end_date}><input type="date" className={e.end_date ? "err" : ""} value={f.end_date} onChange={ev => setF(p => ({ ...p, end_date: ev.target.value }))} /></FF>
@@ -56,7 +59,7 @@ function DailyCaloriesDialog({ athleteId, athlete, onClose, toast }) {
     apiGet(`/athletes/${athleteId}/activity-calories`).then(data => {
       setActCals(data);
       setEditCals(data.reduce((acc, a) => ({ ...acc, [a.level]: a.additional_calories }), {}));
-    });
+    }).catch(err => toast?.show(err.message || "Failed to load calorie data", "error"));
   }, [athleteId]);
 
   const rmr     = athlete.average || 0;
@@ -83,7 +86,10 @@ function DailyCaloriesDialog({ athleteId, athlete, onClose, toast }) {
   return (
     <div className="overlay">
       <div className="dialog dialog-md">
-        <div className="dialog-title"><Icon name="flame" size={20} />Daily Calorie Breakdown</div>
+        <div className="dialog-title" style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <span style={{display:"flex",alignItems:"center",gap:8}}><Icon name="flame" size={20} />Daily Calorie Breakdown</span>
+          <DialogCloseBtn onClose={onClose}/>
+        </div>
         <div className="stat-grid" style={{ gridTemplateColumns: "repeat(4,1fr)" }}>
           {[["RMR", rmr.toFixed(0), "kcal/day", "var(--accent)"],
             ["Multiplier", `×${mult.toFixed(3)}`, `Level ${level}`, "var(--orange)"],
@@ -575,7 +581,10 @@ function ManageAthletesDialog({ athletes, currentId, onSwitch, onRefresh, onClos
   return (
     <div className="overlay">
       <div className="dialog dialog-md">
-        <div className="dialog-title"><Icon name="users" size={20}/>Manage Athletes</div>
+        <div className="dialog-title" style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <span style={{display:"flex",alignItems:"center",gap:8}}><Icon name="users" size={20}/>Manage Athletes</span>
+          <DialogCloseBtn onClose={onClose}/>
+        </div>
         <div className="section-header" style={{marginBottom:16}}>
           <span style={{color:"var(--text2)",fontSize:13}}>{athletes.length} athlete{athletes.length!==1?"s":""}</span>
           <button className="btn btn-primary btn-sm" onClick={()=>{setEditAth(null);setShowForm(true);}}>

@@ -1,3 +1,52 @@
+## v1.2.1 — May 11, 2026
+
+### Refactor, Error Handling & Security Hardening
+
+**`frontend/js/workout-tab.js`**
+- `ExerciseDialog`, `SessionDialog`, `WorkoutPlanFormDialog`: all three dialogs now accept a `toast` prop and show a user-facing error message when save fails — previously the catch block silently reset `saving` with no feedback
+- `toast={toast}` passed from `WorkoutTab` to all three dialog call sites
+- Rest day toggle redesigned from a small moon icon in the day header to a full-width labeled button at the column bottom, consistent with the "Add Session" button style; button colour reflects active state
+
+**`frontend/js/mealplan-tab.js`**
+- `deleteMeal()`: wrapped in `try/catch` — previously an unhandled rejection would silently fail with no user feedback
+- Dead `catKey` constant removed (was defined but never referenced)
+
+**`frontend/js/athlete-tab.js`**
+- `DailyCaloriesDialog` `useEffect` fetch: added `.catch()` handler — previously a failed load showed no error toast
+
+**`frontend/js/app.js`**
+- Removed duplicate `initials()` function — the canonical version in `components.js` is used instead (loaded earlier in `index.html`)
+
+**`frontend/js/calendar-tab.js`**
+- `fmtDate()` moved to module scope (was redefined on every `CalendarTab` render)
+- `loadDay()`, `loadMonth()`, `handleSave()`, `saveEvent()`, `deleteEvent()` all wrapped in `try/catch` with toast error reporting
+- `handleSave()` uses `finally { setSaving(false) }` to ensure spinner always clears
+- `EventDialog` now receives and uses `toast` prop; `save()` wrapped in `try/catch`
+- `DialogTitle` component used in `EventDialog` header
+
+**`frontend/js/supplements-tab.js`**
+- `SupSection` moved from inside `SupplementsTab` to module scope — previously React treated it as a new component type on every parent render, causing unnecessary unmount/remount on day-tab switches
+- `SupplementDialog.save()` uses `finally { setSaving(false) }` and shows toast on error
+- `deleteSup()` wrapped in `try/catch` with toast error reporting
+- `DialogTitle` component used in `SupplementDialog` header
+
+**`frontend/js/components.js`**
+- Added `DialogCloseBtn` shared component — standardises the ✕ close button across all dialogs
+- Added `DialogTitle` shared component — renders icon + title + `DialogCloseBtn` in a standard header row
+- Added `initials()` utility at module scope (removed from `app.js` and `athlete-tab.js` where it was duplicated)
+
+**`backend/main.py`**
+- CORS `allow_methods`: added `"PATCH"` — `PATCH /api/athletes/{id}/workout-plans/{id}/rest-days` was being rejected by browser preflight
+- `SendProgramModel` validators (`email_v`, `subj_v`): strip embedded `\r` and `\n` characters to prevent SMTP header injection via the `to_email` and `subject` fields
+- `delete_athlete`: added 404 existence check before `DELETE` — previously the endpoint returned 200 with `{"deleted": id}` even when the athlete did not exist
+- `update_food`: ownership/existence check (`SELECT … WHERE id=? AND athlete_id=?`) moved before the `UPDATE` statement — previously an unauthorised write could execute before the 404 was raised
+- 7 SQLite performance indexes added in `init_db()` on foreign-key columns (`meal_items.meal_id`, `meals.athlete_id`, `supplements.athlete_id`, `workout_exercises.session_id`, `workout_sessions.plan_id`, `food_swaps.athlete_id`, `nutrition_foods.athlete_id`)
+
+**`VERSION`**
+- Bumped `1.2.0` → `1.2.1`
+
+---
+
 ## v1.2.0 — May 10, 2026
 
 ### Workout UX, Athlete Units, Exercise Library & Plan Export
