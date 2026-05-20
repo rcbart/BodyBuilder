@@ -171,7 +171,7 @@ function SwapRow({ swap, athleteId, onSaved, onDeleted, toast }) {
       });
       onSaved(updated);
       toast.show("Swap saved", "success");
-    } catch(err) { console.error('[Foodswaps] Error:', err.message, err); toast.show(err.message, 'error'); }
+    } catch(err) { toast.show(err.message, "error"); }
     setSaving(false);
   }
 
@@ -180,7 +180,7 @@ function SwapRow({ swap, athleteId, onSaved, onDeleted, toast }) {
     try {
       await apiDel(`/athletes/${athleteId}/food-swaps/${swap.id}`);
       onDeleted(swap.id);
-    } catch(err) { console.error('[Foodswaps] Error:', err.message, err); toast.show(err.message, 'error'); setSaving(false); }
+    } catch(err) { toast.show(err.message, "error"); setSaving(false); }
   }
 
   const base = {
@@ -309,7 +309,7 @@ function NewSwapRow({ category, athleteId, onSaved, onCancel, toast }) {
       });
       onSaved(created);
       toast.show("Swap added", "success");
-    } catch(err) { console.error('[Foodswaps] Error:', err.message, err); toast.show(err.message, 'error'); setSaving(false); }
+    } catch(err) { toast.show(err.message, "error"); setSaving(false); }
   }
 
   const base = {
@@ -468,7 +468,7 @@ function FoodSwapsTab({ athleteId, toast }) {
     try {
       const d = await apiGet(`/athletes/${athleteId}/food-swaps`);
       setSwaps(d);
-    } catch(err) { console.error('[Foodswaps] Error:', err.message, err); toast.show(err.message, 'error'); }
+    } catch(err) { toast.show(err.message, "error"); }
     setLoading(false);
   }
 

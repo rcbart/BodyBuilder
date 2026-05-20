@@ -29,7 +29,7 @@ function EventDialog({ event, date, onSave, onDelete, onClose, toast }) {
       await onSave(f);
       onClose();
     } catch(err) {
-      console.error('[Calendar] Error:', err.message || 'Failed to save event', err); toast?.show(err.message || 'Failed to save event', 'error');
+      toast?.show(err.message || "Failed to save event", "error");
     }
   }
 
@@ -71,7 +71,7 @@ function DayPanel({ athleteId, dateStr, onClose, toast }) {
       setDayData(d.day);
       setEvents(d.events);
       setForm({ steps: d.day.steps||0, aerobic_type: d.day.aerobic_type||"", aerobic_duration: d.day.aerobic_duration||0, workout_notes: d.day.workout_notes||"" });
-    } catch(err) { console.error('[Calendar] Error:', err.message || 'Failed to load day', err); toast.show(err.message || 'Failed to load day', 'error'); }
+    } catch(err) { toast.show(err.message || "Failed to load day", "error"); }
   }
 
   const sf = (k,v) => { setErrors(p=>({...p,[k]:null})); setForm(p=>({...p,[k]:v})); };
@@ -95,7 +95,7 @@ function DayPanel({ athleteId, dateStr, onClose, toast }) {
       });
       toast.show("Day saved","success");
     } catch(err) {
-      console.error('[Calendar] Error:', err.message || 'Failed to save day', err); toast.show(err.message || 'Failed to save day', 'error');
+      toast.show(err.message || "Failed to save day", "error");
     } finally {
       setSaving(false);
     }
@@ -118,7 +118,7 @@ function DayPanel({ athleteId, dateStr, onClose, toast }) {
       await apiDel(`/athletes/${athleteId}/calendar/events/${id}`);
       setEvents(ev=>ev.filter(e=>e.id!==id));
       toast.show("Event deleted","success");
-    } catch(err) { console.error('[Calendar] Error:', err.message, err); toast.show(err.message, 'error'); }
+    } catch(err) { toast.show(err.message, "error"); }
   }
 
   const label = new Date(dateStr+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"});
@@ -184,7 +184,7 @@ function CalendarTab({ athleteId, toast }) {
     try {
       const d = await apiGet(`/athletes/${athleteId}/calendar/month?year=${view.year}&month=${view.month}`);
       setMonthData(d);
-    } catch(err) { console.error('[Calendar] Error:', err.message || 'Failed to load calendar', err); toast.show(err.message || 'Failed to load calendar', 'error'); }
+    } catch(err) { toast.show(err.message || "Failed to load calendar", "error"); }
   }
 
   function nav(unit, dir) {

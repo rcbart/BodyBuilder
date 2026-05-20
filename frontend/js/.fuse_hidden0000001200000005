@@ -59,7 +59,7 @@ function DailyCaloriesDialog({ athleteId, athlete, onClose, toast }) {
     apiGet(`/athletes/${athleteId}/activity-calories`).then(data => {
       setActCals(data);
       setEditCals(data.reduce((acc, a) => ({ ...acc, [a.level]: a.additional_calories }), {}));
-    }).catch(err => console.error('[Athlete] Error:', err.message || 'Failed to load calorie data', err); toast?.show(err.message || 'Failed to load calorie data', 'error'));
+    }).catch(err => toast?.show(err.message || "Failed to load calorie data", "error"));
   }, [athleteId]);
 
   const rmr     = athlete.average || 0;
@@ -79,7 +79,7 @@ function DailyCaloriesDialog({ athleteId, athlete, onClose, toast }) {
       const u = await apiPut(`/athletes/${athleteId}/activity-calories/${lv}`, { additional_calories: Number(editCals[lv]) });
       setActCals(u);
       toast.show(`Level ${lv} calories updated`, "success");
-    } catch (err) { console.error('[Athlete] Error:', err.message, err); toast.show(err.message, 'error'); }
+    } catch (err) { toast.show(err.message, "error"); }
     setSaving(null);
   }
 
@@ -171,7 +171,7 @@ function AthleteSettingsTab({ athleteId, toast, onAthleteUpdated }) {
         const { ft, inches } = cmToFtIn(ath.height_cm || 175);
         setHtFt(ft); setHtIn(inches);
       }
-    } catch (err) { console.error('[Athlete] Error:', err.message, err); toast.show(err.message, 'error'); }
+    } catch (err) { toast.show(err.message, "error"); }
   }
 
   const sf = (k, v) => { setErrors(p => ({ ...p, [k]: null })); setForm(p => ({ ...p, [k]: v })); };
@@ -224,7 +224,7 @@ function AthleteSettingsTab({ athleteId, toast, onAthleteUpdated }) {
       setData(updated);
       onAthleteUpdated();
       toast.show("Settings saved", "success");
-    } catch (err) { console.error('[Athlete] Error:', err.message, err); toast.show(err.message, 'error'); }
+    } catch (err) { toast.show(err.message, "error"); }
     setSaving(false);
   }
 
@@ -562,7 +562,7 @@ function ManageAthletesDialog({ athletes, currentId, onSwitch, onRefresh, onClos
       await apiDel(`/athletes/${ath.id}`);
       onRefresh();
       toast.show("Athlete deleted", "success");
-    } catch (err) { console.error('[Athlete] Error:', err.message, err); toast.show(err.message, 'error'); }
+    } catch (err) { toast.show(err.message, "error"); }
   }
 
   async function handleSave(body) {
@@ -571,7 +571,7 @@ function ManageAthletesDialog({ athletes, currentId, onSwitch, onRefresh, onClos
       else await apiPost("/athletes", body);
       onRefresh();
       toast.show(editAth ? "Athlete updated" : "Athlete created", "success");
-    } catch (err) { console.error('[Athlete] Error:', err.message, err); toast.show(err.message, 'error'); throw err; }
+    } catch (err) { toast.show(err.message, "error"); throw err; }
   }
 
   function initials(name) {

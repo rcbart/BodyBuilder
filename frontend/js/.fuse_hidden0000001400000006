@@ -265,7 +265,7 @@ function ExerciseDialog({ exercise, sessionId, onSave, onClose, units, toast }) 
         if (exercise) await apiPut(`/workout-exercises/${exercise.id}`, payload);
         else          await apiPost(`/workout-exercises`, payload);
         onSave(); onClose();
-      } catch(err) { console.error('[Workout] Error:', err.message || 'Failed to save exercise', err); toast?.show(err.message || 'Failed to save exercise', 'error'); setSaving(false); }
+      } catch(err) { toast?.show(err.message || "Failed to save exercise", "error"); setSaving(false); }
     } else {
       if (!validateStrength()) return;
       setSaving(true);
@@ -274,7 +274,7 @@ function ExerciseDialog({ exercise, sessionId, onSave, onClose, units, toast }) 
         if (exercise) await apiPut(`/workout-exercises/${exercise.id}`, payload);
         else          await apiPost(`/workout-exercises`, payload);
         onSave(); onClose();
-      } catch(err) { console.error('[Workout] Error:', err.message || 'Failed to save exercise', err); toast?.show(err.message || 'Failed to save exercise', 'error'); setSaving(false); }
+      } catch(err) { toast?.show(err.message || "Failed to save exercise", "error"); setSaving(false); }
     }
   }
 
@@ -820,7 +820,7 @@ function SessionDialog({ session, planId, defaultDay, athleteId, onSave, onClose
         await apiPost(`/workout-sessions`, f);
         onSave(); onClose();
       }
-    } catch(err) { console.error('[Workout] Error:', err.message || 'Failed to save session', err); toast?.show(err.message || 'Failed to save session', 'error'); setSaving(false); }
+    } catch(err) { toast?.show(err.message || "Failed to save session", "error"); setSaving(false); }
   }
 
   return (
@@ -941,7 +941,7 @@ function WorkoutPlanFormDialog({ plan, athleteId, onSave, onClose, toast }) {
       if (plan) await apiPut(`/athletes/${athleteId}/workout-plans/${plan.id}`, f);
       else      await apiPost(`/athletes/${athleteId}/workout-plans`, f);
       onSave(); onClose();
-    } catch(err) { console.error('[Workout] Error:', err.message || 'Failed to save plan', err); toast?.show(err.message || 'Failed to save plan', 'error'); setSaving(false); }
+    } catch(err) { toast?.show(err.message || "Failed to save plan", "error"); setSaving(false); }
   }
 
   return (
@@ -1041,7 +1041,7 @@ function WorkoutPlanTab({ athleteId, toast, units }) {
     try {
       const updated = await apiPatch(`/athletes/${athleteId}/workout-plans/${plan.id}/rest-days`, { day });
       setPlans(ps => ps.map(p => p.id === plan.id ? updated : p));
-    } catch(err) { console.error('[Workout] Error:', err.message, err); toast.show(err.message, 'error'); }
+    } catch(err) { toast.show(err.message, "error"); }
     setTogglingRestDay(null);
   }
 
@@ -1062,7 +1062,7 @@ function WorkoutPlanTab({ athleteId, toast, units }) {
       a.click();
       URL.revokeObjectURL(a.href);
       toast.show("Plan exported", "success");
-    } catch(err) { console.error('[Workout] Error:', err.message, err); toast.show(err.message, 'error'); }
+    } catch(err) { toast.show(err.message, "error"); }
     setExportingPlanId(null);
   }
 

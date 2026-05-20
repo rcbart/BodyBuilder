@@ -178,7 +178,7 @@ function AddCustomFoodDialog({ athleteId, onSaved, onClose, toast }) {
       toast.show(`"${created.name}" added to your foods`, "success");
       onSaved(created);
       onClose();
-    } catch(err) { console.error('[Mealplan] Error:', err.message, err); toast.show(err.message, 'error'); setSaving(false); }
+    } catch(err) { toast.show(err.message, "error"); setSaving(false); }
   }
 
 
@@ -476,7 +476,7 @@ function MealItemDialog({ item, mealId, onSave, onClose, units, athleteId, toast
       else      await apiPost(`/meals/${mealId}/items`, payload);
       onSave(); onClose();
     } catch(err) {
-      console.error('[Mealplan] Error:', err.message || 'Failed to save food item', err); toast?.show(err.message || 'Failed to save food item', 'error');
+      toast?.show(err.message || "Failed to save food item", "error");
       setSaving(false);
     }
   }
@@ -942,7 +942,7 @@ function MealPlanTab({ athleteId, toast, units }) {
       await apiDel(`/athletes/${athleteId}/meals/${id}`);
       loadAll();
       toast.show("Meal deleted","success");
-    } catch(err) { console.error('[Mealplan] Error:', err.message || 'Failed to delete meal', err); toast.show(err.message || 'Failed to delete meal', 'error'); }
+    } catch(err) { toast.show(err.message || "Failed to delete meal", "error"); }
   }
 
   const filteredMeals = meals.filter(m => m.day_type === dayFilter);

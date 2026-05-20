@@ -1,3 +1,42 @@
+## v1.2.2 — May 20, 2026
+
+### Logging, Error Handling & Connection Leak Fixes
+
+**`backend/main.py`**
+- Added full logging system: rotating file handler (5 MB × 3 backups) + console handler, using INFO/DEBUG/ERROR levels; log file written to the data directory alongside the database (`bodybuilder.log`)
+- Added `@app.middleware("http")` to log every request (INFO) and response (DEBUG)
+- Added `@app.exception_handler(Exception)` global handler — any unhandled exception now logs a full stack trace and returns a structured 500 JSON response instead of crashing silently
+- Added `db_conn()` context manager (`@contextmanager`) that guarantees `conn.close()` runs even when an exception is raised mid-endpoint; all ~45 endpoints converted from bare `conn.close()` calls to `with db_conn() as conn:`
+- `init_db()`: wrapped in `try/except/finally` with `conn.rollback()` on failure and logger calls at start and completion
+- `ensure_athlete_defaults()`: converted to `with db_conn()`
+- `_run_seed()`: added `logger.info/debug/warning/error` throughout; catches and logs unexpected crashes in the background thread
+- `_read_version_file()`: distinguishes `FileNotFoundError` from generic exceptions in logging
+- `test_smtp()`: split `except` into `SMTPAuthenticationError` vs `SMTPConnectError` vs generic, each with a specific error message and log entry
+- `send_program()`: separate error paths for workbook build failure vs SMTP send failure, both logged
+- `export_xlsx()` / `export_plan_xlsx()`: wrapped in `try/except` with `logger.error(exc_info=True)`; removed `traceback.print_exc()` in favour of logger
+- `restore_backup()`: logs each table's row count at DEBUG; logs rollback on failure with full stack trace; error message now includes the exception string
+- `get_meal_plan()`: raises an explicit 500 with a helpful message if the meal plan row is missing after `ensure_athlete_defaults()`
+- All `HTTPException(404)` calls that previously had no detail string now include a descriptive message
+- `update_activity_calories()`: error message updated from `"Level 1–5"` to `"Activity level must be between 1 and 5"`
+- `list_supplements()`: `day_of_week` validation now lists all valid values in the error message
+- `_run_seed()`: added top-level `except Exception` so a crash in the background thread is logged rather than swallowed
+- Startup log line emitted after version is resolved: `BodyBuilder API starting — version X.Y.Z, DB=<path>`
+
+**`frontend/js/api.js`**
+- `apiFetch()`: added `console.debug` on every request and response; catches network-level errors (fetch throws) separately from HTTP errors, with a "is the server running?" message; `console.error` on every non-2xx response including status code
+
+**`frontend/js/app.js`**
+- `loadAthletes()` catch: added `console.error` alongside the toast
+- Version fetch `.catch()`: changed from silent no-op to `console.warn`
+
+**`frontend/js/*.js` (all tab files)**
+- Every `catch(err) { toast.show(err.message, "error") }` block now also calls `console.error(...)` first, providing full error objects and stack traces in browser DevTools
+
+**`VERSION`**
+- Bumped `1.2.1` → `1.2.2`
+
+---
+
 ## v1.2.1 — May 11, 2026
 
 ### Refactor, Error Handling & Security Hardening

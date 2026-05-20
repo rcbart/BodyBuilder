@@ -1,6 +1,6 @@
 # BodyBuilder — Frequently Asked Questions
 
-**Version 1.2.1 · macOS**
+**Version 1.2.2 · macOS**
 
 This guide covers the most common problems you might run into and exactly how to fix them — no technical experience required.
 

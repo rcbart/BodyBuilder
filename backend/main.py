@@ -26,6 +26,43 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
+import logging
+import logging.handlers
+from contextlib import contextmanager
+
+# ─── Logging Setup ─────────────────────────────────────────────────────────────
+# Log file lives beside the database so it persists between app restarts.
+# Resolved after _DATA_DIR is set (below), then _configure_logging() is called.
+_LOG_FILE: Path | None = None  # set after _DATA_DIR is known
+
+def _configure_logging(log_dir: Path) -> None:
+    """Wire up rotating file + console handlers.  Called once at startup."""
+    global _LOG_FILE
+    _LOG_FILE = log_dir / "bodybuilder.log"
+
+    fmt = logging.Formatter(
+        "%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    # Rotating file — 5 MB per file, keep 3 backups
+    fh = logging.handlers.RotatingFileHandler(
+        _LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
+    )
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(fmt)
+
+    # Console — INFO and above only (keeps terminal readable)
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.INFO)
+    ch.setFormatter(fmt)
+
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG)
+    root.addHandler(fh)
+    root.addHandler(ch)
+
+logger = logging.getLogger("bodybuilder")
 
 app = FastAPI(title="BodyBuilder API")
 app.add_middleware(
@@ -35,6 +72,35 @@ app.add_middleware(
     allow_methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
     allow_headers=["Content-Type","Accept"],
 )
+
+# ── Request-level logging middleware ──────────────────────────────────────────
+@app.middleware("http")
+async def _log_requests(request: Request, call_next):
+    logger.info("→ %s %s", request.method, request.url.path)
+    try:
+        response = await call_next(request)
+        logger.debug("← %s %s  status=%d", request.method, request.url.path, response.status_code)
+        return response
+    except Exception as exc:
+        logger.error(
+            "Unhandled exception on %s %s: %s",
+            request.method, request.url.path, exc, exc_info=True
+        )
+        raise
+
+# ── Global unhandled-exception handler ────────────────────────────────────────
+from fastapi.responses import JSONResponse
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception):
+    logger.error(
+        "Unhandled server error on %s %s: %s",
+        request.method, request.url.path, exc, exc_info=True
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Internal server error: {exc}"},
+    )
 
 BASE_DIR = Path(__file__).parent
 
@@ -52,15 +118,23 @@ _VERSION_ENV  = os.environ.get("BB_VERSION_FILE")
 DB_PATH      = str(_DATA_DIR / "bodybuilder.db")
 FRONTEND_DIR = Path(_FRONTEND_ENV) if _FRONTEND_ENV else BASE_DIR.parent / "frontend"
 
+# Initialise logging now that _DATA_DIR is resolved
+_configure_logging(_DATA_DIR)
+
 # ── Read version from repo-root VERSION file ──────────────────────────────────
 _VERSION_FILE = Path(_VERSION_ENV) if _VERSION_ENV else BASE_DIR.parent / "VERSION"
 def _read_version_file() -> tuple[int, int, int]:
     try:
         parts = _VERSION_FILE.read_text().strip().split(".")
         return int(parts[0]), int(parts[1]), int(parts[2])
-    except Exception:
+    except FileNotFoundError:
+        logger.warning("VERSION file not found at %s — defaulting to 1.0.0", _VERSION_FILE)
+        return 1, 0, 0
+    except Exception as exc:
+        logger.error("Failed to read VERSION file at %s: %s", _VERSION_FILE, exc)
         return 1, 0, 0
 APP_VERSION = _read_version_file()   # (major, minor, tiny)
+logger.info("BodyBuilder API starting — version %d.%d.%d, DB=%s", *APP_VERSION, DB_PATH)
 EXERCISE_IMAGES_DIR = _DATA_DIR / "exercise_images"
 EXERCISE_IMAGES_DIR.mkdir(exist_ok=True)
 
@@ -196,11 +270,13 @@ def _download_image(img_url: str, save_path: Path) -> bool:
 def _run_seed(force: bool = False):
     """Background thread: build Wger index then fetch and cache exercise images."""
     global _seed_state
+    logger.info("Image seed started: force=%s exercises=%d", force, len(EXERCISE_ALL))
     _seed_state.update({"running": True, "done": 0, "errors": 0, "total": len(EXERCISE_ALL)})
     conn = get_db()
     try:
         index = _build_wger_index()
         if not index:
+            logger.error("Image seed aborted — could not build Wger exercise index")
             _seed_state["running"] = False
             return
 
@@ -230,13 +306,20 @@ def _run_seed(force: bool = False):
                         (name, img_file)
                     )
                     conn.commit()
+                    logger.debug("Image cached: exercise=%r file=%r", name, img_file)
                     _seed_state["done"] += 1
                 else:
+                    logger.warning("Image download failed: exercise=%r url=%r", name, img_url)
                     _seed_state["errors"] += 1
             else:
+                logger.debug("No Wger match: exercise=%r", name)
                 _seed_state["errors"] += 1
 
             time.sleep(0.4)
+
+        logger.info("Image seed complete: done=%d errors=%d", _seed_state["done"], _seed_state["errors"])
+    except Exception as exc:
+        logger.error("Image seed crashed: %s", exc, exc_info=True)
     finally:
         conn.close()
         _seed_state["running"] = False
@@ -251,6 +334,29 @@ def get_db():
     return conn
 
 
+@contextmanager
+def db_conn():
+    """Context manager that guarantees conn.close() even if an exception is raised.
+
+    Usage::
+
+        with db_conn() as conn:
+            row = conn.execute("SELECT ...").fetchone()
+            conn.commit()   # only needed for writes
+
+    On exception the transaction is automatically rolled back by SQLite when
+    the connection closes.
+    """
+    conn = get_db()
+    try:
+        yield conn
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def _col_exists(conn, table, col):
     rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
     return any(r["name"] == col for r in rows)
@@ -262,305 +368,313 @@ def _table_exists(conn, table):
 
 
 def init_db():
+    logger.info("Initialising database at %s", DB_PATH)
     conn = get_db()
     c = conn.cursor()
+    try:
 
-    # ── version ──
-    c.execute("""CREATE TABLE IF NOT EXISTS version (
-        id INTEGER PRIMARY KEY DEFAULT 1,
-        major INTEGER DEFAULT 1, minor INTEGER DEFAULT 0, tiny INTEGER DEFAULT 0, notes TEXT DEFAULT ''
-    )""")
-    c.execute("INSERT OR IGNORE INTO version (id) VALUES (1)")
-    # Sync version table with VERSION file (only if the file version is newer)
-    _vmaj, _vmin, _vtiny = APP_VERSION
-    _row = c.execute("SELECT major, minor, tiny FROM version WHERE id=1").fetchone()
-    if _row:
-        _db_tuple  = (_row["major"] or 0, _row["minor"] or 0, _row["tiny"] or 0)
-        _file_tuple = (_vmaj, _vmin, _vtiny)
-        if _file_tuple > _db_tuple:
-            c.execute("UPDATE version SET major=?, minor=?, tiny=? WHERE id=1",
-                      (_vmaj, _vmin, _vtiny))
+        # ── version ──
+        c.execute("""CREATE TABLE IF NOT EXISTS version (
+            id INTEGER PRIMARY KEY DEFAULT 1,
+            major INTEGER DEFAULT 1, minor INTEGER DEFAULT 0, tiny INTEGER DEFAULT 0, notes TEXT DEFAULT ''
+        )""")
+        c.execute("INSERT OR IGNORE INTO version (id) VALUES (1)")
+        # Sync version table with VERSION file (only if the file version is newer)
+        _vmaj, _vmin, _vtiny = APP_VERSION
+        _row = c.execute("SELECT major, minor, tiny FROM version WHERE id=1").fetchone()
+        if _row:
+            _db_tuple  = (_row["major"] or 0, _row["minor"] or 0, _row["tiny"] or 0)
+            _file_tuple = (_vmaj, _vmin, _vtiny)
+            if _file_tuple > _db_tuple:
+                c.execute("UPDATE version SET major=?, minor=?, tiny=? WHERE id=1",
+                          (_vmaj, _vmin, _vtiny))
 
-    # ── athletes (multi-athlete) ──
-    c.execute("""CREATE TABLE IF NOT EXISTS athletes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT DEFAULT '',
-        email TEXT DEFAULT '',
-        birthdate TEXT DEFAULT '',
-        height_cm REAL DEFAULT 175,
-        weight_kg REAL DEFAULT 75,
-        body_fat_pct REAL DEFAULT 0,
-        sex TEXT DEFAULT 'male',
-        activity_level INTEGER DEFAULT 1,
-        workout_days_per_week INTEGER DEFAULT 3,
-        workout_days TEXT DEFAULT '[]',
-        workout_time TEXT DEFAULT 'AM',
-        phase TEXT DEFAULT 'maintain',
-        deficit REAL DEFAULT 0,
-        units TEXT DEFAULT 'metric',
-        status TEXT DEFAULT 'active'
-    )""")
+        # ── athletes (multi-athlete) ──
+        c.execute("""CREATE TABLE IF NOT EXISTS athletes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT DEFAULT '',
+            email TEXT DEFAULT '',
+            birthdate TEXT DEFAULT '',
+            height_cm REAL DEFAULT 175,
+            weight_kg REAL DEFAULT 75,
+            body_fat_pct REAL DEFAULT 0,
+            sex TEXT DEFAULT 'male',
+            activity_level INTEGER DEFAULT 1,
+            workout_days_per_week INTEGER DEFAULT 3,
+            workout_days TEXT DEFAULT '[]',
+            workout_time TEXT DEFAULT 'AM',
+            phase TEXT DEFAULT 'maintain',
+            deficit REAL DEFAULT 0,
+            units TEXT DEFAULT 'metric',
+            status TEXT DEFAULT 'active'
+        )""")
 
-    # ── Migrate old single-athlete table if present ──
-    if _table_exists(conn, "athlete") and conn.execute("SELECT COUNT(*) FROM athletes").fetchone()[0] == 0:
-        old = conn.execute("SELECT * FROM athlete WHERE id=1").fetchone()
-        if old:
-            d = dict(old)
-            c.execute("""INSERT INTO athletes (id, name, email, birthdate, height_cm, weight_kg, body_fat_pct,
-                sex, activity_level, workout_days_per_week, workout_days, workout_time, phase, deficit)
-                VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (d.get("name",""), d.get("email",""), d.get("birthdate",""), d.get("height_cm",175),
-                 d.get("weight_kg",75), d.get("body_fat_pct",0), d.get("sex","male"),
-                 d.get("activity_level",1), d.get("workout_days_per_week",3), d.get("workout_days","[]"),
-                 d.get("workout_time","AM"), d.get("phase","maintain"), d.get("deficit",0)))
+        # ── Migrate old single-athlete table if present ──
+        if _table_exists(conn, "athlete") and conn.execute("SELECT COUNT(*) FROM athletes").fetchone()[0] == 0:
+            old = conn.execute("SELECT * FROM athlete WHERE id=1").fetchone()
+            if old:
+                d = dict(old)
+                c.execute("""INSERT INTO athletes (id, name, email, birthdate, height_cm, weight_kg, body_fat_pct,
+                    sex, activity_level, workout_days_per_week, workout_days, workout_time, phase, deficit)
+                    VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (d.get("name",""), d.get("email",""), d.get("birthdate",""), d.get("height_cm",175),
+                     d.get("weight_kg",75), d.get("body_fat_pct",0), d.get("sex","male"),
+                     d.get("activity_level",1), d.get("workout_days_per_week",3), d.get("workout_days","[]"),
+                     d.get("workout_time","AM"), d.get("phase","maintain"), d.get("deficit",0)))
 
-    # ── programs ──
-    c.execute("""CREATE TABLE IF NOT EXISTS programs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        athlete_id INTEGER NOT NULL DEFAULT 1,
-        start_date TEXT DEFAULT '',
-        end_date TEXT DEFAULT '',
-        payment_processed INTEGER DEFAULT 0,
-        FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE
-    )""")
-    # Migrate old program table
-    if _table_exists(conn, "program") and conn.execute("SELECT COUNT(*) FROM programs").fetchone()[0] == 0:
-        old = conn.execute("SELECT * FROM program WHERE id=1").fetchone()
-        if old:
-            d = dict(old)
-            c.execute("INSERT INTO programs (athlete_id, start_date, end_date, payment_processed) VALUES (1,?,?,?)",
-                      (d.get("start_date",""), d.get("end_date",""), d.get("payment_processed",0)))
+        # ── programs ──
+        c.execute("""CREATE TABLE IF NOT EXISTS programs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            athlete_id INTEGER NOT NULL DEFAULT 1,
+            start_date TEXT DEFAULT '',
+            end_date TEXT DEFAULT '',
+            payment_processed INTEGER DEFAULT 0,
+            FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE
+        )""")
+        # Migrate old program table
+        if _table_exists(conn, "program") and conn.execute("SELECT COUNT(*) FROM programs").fetchone()[0] == 0:
+            old = conn.execute("SELECT * FROM program WHERE id=1").fetchone()
+            if old:
+                d = dict(old)
+                c.execute("INSERT INTO programs (athlete_id, start_date, end_date, payment_processed) VALUES (1,?,?,?)",
+                          (d.get("start_date",""), d.get("end_date",""), d.get("payment_processed",0)))
 
-    # ── activity_calories ──
-    c.execute("""CREATE TABLE IF NOT EXISTS activity_calories (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        athlete_id INTEGER NOT NULL DEFAULT 1,
-        level INTEGER NOT NULL,
-        additional_calories REAL DEFAULT 0,
-        multiplier REAL DEFAULT 1.0,
-        UNIQUE(athlete_id, level),
-        FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE
-    )""")
-    # Migrate existing rows: add multiplier column and seed standard values
-    if not _col_exists(conn, "activity_calories", "multiplier"):
-        c.execute("ALTER TABLE activity_calories ADD COLUMN multiplier REAL DEFAULT 1.0")
-    # Fix any rows still at the placeholder default of 1.0 — no standard level uses 1.0
-    for lvl, mult in [(1,1.200),(2,1.375),(3,1.550),(4,1.725),(5,1.900)]:
-        c.execute("UPDATE activity_calories SET multiplier=? WHERE level=? AND multiplier=1.0",
-                  (mult, lvl))
-    # Will be populated per-athlete on first access
+        # ── activity_calories ──
+        c.execute("""CREATE TABLE IF NOT EXISTS activity_calories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            athlete_id INTEGER NOT NULL DEFAULT 1,
+            level INTEGER NOT NULL,
+            additional_calories REAL DEFAULT 0,
+            multiplier REAL DEFAULT 1.0,
+            UNIQUE(athlete_id, level),
+            FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE
+        )""")
+        # Migrate existing rows: add multiplier column and seed standard values
+        if not _col_exists(conn, "activity_calories", "multiplier"):
+            c.execute("ALTER TABLE activity_calories ADD COLUMN multiplier REAL DEFAULT 1.0")
+        # Fix any rows still at the placeholder default of 1.0 — no standard level uses 1.0
+        for lvl, mult in [(1,1.200),(2,1.375),(3,1.550),(4,1.725),(5,1.900)]:
+            c.execute("UPDATE activity_calories SET multiplier=? WHERE level=? AND multiplier=1.0",
+                      (mult, lvl))
+        # Will be populated per-athlete on first access
 
-    # ── calendar_days ──
-    c.execute("""CREATE TABLE IF NOT EXISTS calendar_days (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        athlete_id INTEGER NOT NULL DEFAULT 1,
-        date TEXT NOT NULL,
-        steps INTEGER DEFAULT 0,
-        aerobic_type TEXT DEFAULT '',
-        aerobic_duration INTEGER DEFAULT 0,
-        workout_notes TEXT DEFAULT '',
-        UNIQUE(athlete_id, date),
-        FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE
-    )""")
-    # Migrate old calendar_days (no athlete_id)
-    if _table_exists(conn, "calendar_days") and not _col_exists(conn, "calendar_days", "athlete_id"):
-        pass  # old table is pre-migration; new table is created above with new name logic
-    # (Since we create a new table with UNIQUE constraint, old data stays in old table)
+        # ── calendar_days ──
+        c.execute("""CREATE TABLE IF NOT EXISTS calendar_days (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            athlete_id INTEGER NOT NULL DEFAULT 1,
+            date TEXT NOT NULL,
+            steps INTEGER DEFAULT 0,
+            aerobic_type TEXT DEFAULT '',
+            aerobic_duration INTEGER DEFAULT 0,
+            workout_notes TEXT DEFAULT '',
+            UNIQUE(athlete_id, date),
+            FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE
+        )""")
+        # Migrate old calendar_days (no athlete_id)
+        if _table_exists(conn, "calendar_days") and not _col_exists(conn, "calendar_days", "athlete_id"):
+            pass  # old table is pre-migration; new table is created above with new name logic
+        # (Since we create a new table with UNIQUE constraint, old data stays in old table)
 
-    # ── calendar_events ──
-    c.execute("""CREATE TABLE IF NOT EXISTS calendar_events (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        athlete_id INTEGER NOT NULL DEFAULT 1,
-        date TEXT NOT NULL,
-        title TEXT DEFAULT '',
-        description TEXT DEFAULT '',
-        event_time TEXT DEFAULT '',
-        FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE
-    )""")
+        # ── calendar_events ──
+        c.execute("""CREATE TABLE IF NOT EXISTS calendar_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            athlete_id INTEGER NOT NULL DEFAULT 1,
+            date TEXT NOT NULL,
+            title TEXT DEFAULT '',
+            description TEXT DEFAULT '',
+            event_time TEXT DEFAULT '',
+            FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE
+        )""")
 
-    # ── meal_plans ──
-    c.execute("""CREATE TABLE IF NOT EXISTS meal_plans (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        athlete_id INTEGER NOT NULL DEFAULT 1 UNIQUE,
-        protein_target REAL DEFAULT 150, carbs_target REAL DEFAULT 200,
-        fat_target REAL DEFAULT 65, fiber_target REAL DEFAULT 25,
-        sodium_target REAL DEFAULT 2300, potassium_target REAL DEFAULT 3500,
-        protein_actual REAL DEFAULT 0, carbs_actual REAL DEFAULT 0,
-        fat_actual REAL DEFAULT 0, fiber_actual REAL DEFAULT 0,
-        sodium_actual REAL DEFAULT 0, potassium_actual REAL DEFAULT 0,
-        FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE
-    )""")
+        # ── meal_plans ──
+        c.execute("""CREATE TABLE IF NOT EXISTS meal_plans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            athlete_id INTEGER NOT NULL DEFAULT 1 UNIQUE,
+            protein_target REAL DEFAULT 150, carbs_target REAL DEFAULT 200,
+            fat_target REAL DEFAULT 65, fiber_target REAL DEFAULT 25,
+            sodium_target REAL DEFAULT 2300, potassium_target REAL DEFAULT 3500,
+            protein_actual REAL DEFAULT 0, carbs_actual REAL DEFAULT 0,
+            fat_actual REAL DEFAULT 0, fiber_actual REAL DEFAULT 0,
+            sodium_actual REAL DEFAULT 0, potassium_actual REAL DEFAULT 0,
+            FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE
+        )""")
 
-    # ── nutrition_foods ──
-    c.execute("""CREATE TABLE IF NOT EXISTS nutrition_foods (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        athlete_id INTEGER NOT NULL DEFAULT 1,
-        name TEXT DEFAULT '', protein REAL DEFAULT 0, carbs REAL DEFAULT 0,
-        fat REAL DEFAULT 0, fiber REAL DEFAULT 0, sodium REAL DEFAULT 0,
-        potassium REAL DEFAULT 0, calories REAL DEFAULT 0,
-        serving_size TEXT DEFAULT '100g', serving_g REAL DEFAULT 100,
-        category TEXT DEFAULT 'general',
-        FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE
-    )""")
-    if not _col_exists(conn, "nutrition_foods", "serving_g"):
-        c.execute("ALTER TABLE nutrition_foods ADD COLUMN serving_g REAL DEFAULT 100")
+        # ── nutrition_foods ──
+        c.execute("""CREATE TABLE IF NOT EXISTS nutrition_foods (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            athlete_id INTEGER NOT NULL DEFAULT 1,
+            name TEXT DEFAULT '', protein REAL DEFAULT 0, carbs REAL DEFAULT 0,
+            fat REAL DEFAULT 0, fiber REAL DEFAULT 0, sodium REAL DEFAULT 0,
+            potassium REAL DEFAULT 0, calories REAL DEFAULT 0,
+            serving_size TEXT DEFAULT '100g', serving_g REAL DEFAULT 100,
+            category TEXT DEFAULT 'general',
+            FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE
+        )""")
+        if not _col_exists(conn, "nutrition_foods", "serving_g"):
+            c.execute("ALTER TABLE nutrition_foods ADD COLUMN serving_g REAL DEFAULT 100")
 
-    # ── food_swaps ──
-    c.execute("""CREATE TABLE IF NOT EXISTS food_swaps (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        athlete_id INTEGER NOT NULL,
-        category TEXT DEFAULT 'carbs',
-        source_name TEXT DEFAULT '',
-        source_amount REAL DEFAULT 100,
-        source_unit TEXT DEFAULT 'g',
-        swap_name TEXT DEFAULT '',
-        swap_amount REAL DEFAULT 100,
-        swap_unit TEXT DEFAULT 'g',
-        sort_order INTEGER DEFAULT 0,
-        FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE
-    )""")
+        # ── food_swaps ──
+        c.execute("""CREATE TABLE IF NOT EXISTS food_swaps (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            athlete_id INTEGER NOT NULL,
+            category TEXT DEFAULT 'carbs',
+            source_name TEXT DEFAULT '',
+            source_amount REAL DEFAULT 100,
+            source_unit TEXT DEFAULT 'g',
+            swap_name TEXT DEFAULT '',
+            swap_amount REAL DEFAULT 100,
+            swap_unit TEXT DEFAULT 'g',
+            sort_order INTEGER DEFAULT 0,
+            FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE
+        )""")
 
-    # ── workout_plans ──
-    c.execute("""CREATE TABLE IF NOT EXISTS workout_plans (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        athlete_id INTEGER NOT NULL DEFAULT 1,
-        title TEXT DEFAULT '',
-        start_date TEXT DEFAULT '',
-        end_date TEXT DEFAULT '',
-        notes TEXT DEFAULT '',
-        sort_order INTEGER DEFAULT 0,
-        FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE
-    )""")
+        # ── workout_plans ──
+        c.execute("""CREATE TABLE IF NOT EXISTS workout_plans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            athlete_id INTEGER NOT NULL DEFAULT 1,
+            title TEXT DEFAULT '',
+            start_date TEXT DEFAULT '',
+            end_date TEXT DEFAULT '',
+            notes TEXT DEFAULT '',
+            sort_order INTEGER DEFAULT 0,
+            FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE
+        )""")
 
-    # ── workout_sessions (one per day-of-week within a plan) ──
-    c.execute("""CREATE TABLE IF NOT EXISTS workout_sessions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        plan_id INTEGER NOT NULL,
-        day_of_week TEXT DEFAULT 'Monday',
-        session_title TEXT DEFAULT '',
-        muscle_groups TEXT DEFAULT '[]',
-        session_notes TEXT DEFAULT '',
-        sort_order INTEGER DEFAULT 0,
-        FOREIGN KEY (plan_id) REFERENCES workout_plans(id) ON DELETE CASCADE
-    )""")
+        # ── workout_sessions (one per day-of-week within a plan) ──
+        c.execute("""CREATE TABLE IF NOT EXISTS workout_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            plan_id INTEGER NOT NULL,
+            day_of_week TEXT DEFAULT 'Monday',
+            session_title TEXT DEFAULT '',
+            muscle_groups TEXT DEFAULT '[]',
+            session_notes TEXT DEFAULT '',
+            sort_order INTEGER DEFAULT 0,
+            FOREIGN KEY (plan_id) REFERENCES workout_plans(id) ON DELETE CASCADE
+        )""")
 
-    # ── workout_exercises ──
-    c.execute("""CREATE TABLE IF NOT EXISTS workout_exercises (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        session_id INTEGER NOT NULL,
-        name TEXT DEFAULT '',
-        muscle_group TEXT DEFAULT '',
-        set_type TEXT DEFAULT 'working',
-        sets_json TEXT DEFAULT '[]',
-        rep_range TEXT DEFAULT '',
-        rir INTEGER DEFAULT 2,
-        tempo TEXT DEFAULT '',
-        intensifiers TEXT DEFAULT '',
-        exercise_notes TEXT DEFAULT '',
-        sort_order INTEGER DEFAULT 0,
-        FOREIGN KEY (session_id) REFERENCES workout_sessions(id) ON DELETE CASCADE
-    )""")
-    # Migrate old exercise columns
-    for col, defval in [("muscle_group","''"), ("rep_range","''"), ("rir","2"),
-                        ("tempo","''"), ("intensifiers","''"), ("image_url","''"),
-                        ("warmup_instructions","''")]:
-        if not _col_exists(conn, "workout_exercises", col):
-            c.execute(f"ALTER TABLE workout_exercises ADD COLUMN {col} TEXT DEFAULT {defval}")
-    # Migrate set_type 'main' → 'working'
-    c.execute("UPDATE workout_exercises SET set_type='working' WHERE set_type='main'")
-    # Migrate athletes: add units column
-    if not _col_exists(conn, "athletes", "units"):
-        c.execute("ALTER TABLE athletes ADD COLUMN units TEXT DEFAULT 'metric'")
-    if not _col_exists(conn, "athletes", "status"):
-        c.execute("ALTER TABLE athletes ADD COLUMN status TEXT DEFAULT 'active'")
-    if not _col_exists(conn, "workout_plans", "warmup_instructions"):
-        c.execute("ALTER TABLE workout_plans ADD COLUMN warmup_instructions TEXT DEFAULT ''")
-    if not _col_exists(conn, "workout_plans", "rest_days"):
-        c.execute("ALTER TABLE workout_plans ADD COLUMN rest_days TEXT DEFAULT '[]'")
+        # ── workout_exercises ──
+        c.execute("""CREATE TABLE IF NOT EXISTS workout_exercises (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER NOT NULL,
+            name TEXT DEFAULT '',
+            muscle_group TEXT DEFAULT '',
+            set_type TEXT DEFAULT 'working',
+            sets_json TEXT DEFAULT '[]',
+            rep_range TEXT DEFAULT '',
+            rir INTEGER DEFAULT 2,
+            tempo TEXT DEFAULT '',
+            intensifiers TEXT DEFAULT '',
+            exercise_notes TEXT DEFAULT '',
+            sort_order INTEGER DEFAULT 0,
+            FOREIGN KEY (session_id) REFERENCES workout_sessions(id) ON DELETE CASCADE
+        )""")
+        # Migrate old exercise columns
+        for col, defval in [("muscle_group","''"), ("rep_range","''"), ("rir","2"),
+                            ("tempo","''"), ("intensifiers","''"), ("image_url","''"),
+                            ("warmup_instructions","''")]:
+            if not _col_exists(conn, "workout_exercises", col):
+                c.execute(f"ALTER TABLE workout_exercises ADD COLUMN {col} TEXT DEFAULT {defval}")
+        # Migrate set_type 'main' → 'working'
+        c.execute("UPDATE workout_exercises SET set_type='working' WHERE set_type='main'")
+        # Migrate athletes: add units column
+        if not _col_exists(conn, "athletes", "units"):
+            c.execute("ALTER TABLE athletes ADD COLUMN units TEXT DEFAULT 'metric'")
+        if not _col_exists(conn, "athletes", "status"):
+            c.execute("ALTER TABLE athletes ADD COLUMN status TEXT DEFAULT 'active'")
+        if not _col_exists(conn, "workout_plans", "warmup_instructions"):
+            c.execute("ALTER TABLE workout_plans ADD COLUMN warmup_instructions TEXT DEFAULT ''")
+        if not _col_exists(conn, "workout_plans", "rest_days"):
+            c.execute("ALTER TABLE workout_plans ADD COLUMN rest_days TEXT DEFAULT '[]'")
 
-    # ── supplements ──
-    c.execute("""CREATE TABLE IF NOT EXISTS supplements (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        athlete_id INTEGER NOT NULL,
-        day_of_week TEXT NOT NULL,
-        name TEXT DEFAULT '',
-        dosage TEXT DEFAULT '',
-        time_of_day TEXT DEFAULT 'AM',
-        sort_order INTEGER DEFAULT 0,
-        FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE
-    )""")
+        # ── supplements ──
+        c.execute("""CREATE TABLE IF NOT EXISTS supplements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            athlete_id INTEGER NOT NULL,
+            day_of_week TEXT NOT NULL,
+            name TEXT DEFAULT '',
+            dosage TEXT DEFAULT '',
+            time_of_day TEXT DEFAULT 'AM',
+            sort_order INTEGER DEFAULT 0,
+            FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE
+        )""")
 
-    # ── meals ──
-    c.execute("""CREATE TABLE IF NOT EXISTS meals (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        athlete_id INTEGER NOT NULL,
-        day_type TEXT DEFAULT 'training',
-        name TEXT DEFAULT '',
-        sort_order INTEGER DEFAULT 0,
-        FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE
-    )""")
+        # ── meals ──
+        c.execute("""CREATE TABLE IF NOT EXISTS meals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            athlete_id INTEGER NOT NULL,
+            day_type TEXT DEFAULT 'training',
+            name TEXT DEFAULT '',
+            sort_order INTEGER DEFAULT 0,
+            FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE
+        )""")
 
-    # ── meal_items ──
-    c.execute("""CREATE TABLE IF NOT EXISTS meal_items (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        meal_id INTEGER NOT NULL,
-        source_type TEXT DEFAULT 'protein',
-        food_name TEXT DEFAULT '',
-        quantity REAL DEFAULT 1,
-        weight_g REAL DEFAULT 0,
-        serving_size TEXT DEFAULT '100g',
-        protein_g REAL DEFAULT 0,
-        carbs_g REAL DEFAULT 0,
-        fat_g REAL DEFAULT 0,
-        fiber_g REAL DEFAULT 0,
-        sodium_mg REAL DEFAULT 0,
-        potassium_mg REAL DEFAULT 0,
-        sort_order INTEGER DEFAULT 0,
-        FOREIGN KEY (meal_id) REFERENCES meals(id) ON DELETE CASCADE
-    )""")
+        # ── meal_items ──
+        c.execute("""CREATE TABLE IF NOT EXISTS meal_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            meal_id INTEGER NOT NULL,
+            source_type TEXT DEFAULT 'protein',
+            food_name TEXT DEFAULT '',
+            quantity REAL DEFAULT 1,
+            weight_g REAL DEFAULT 0,
+            serving_size TEXT DEFAULT '100g',
+            protein_g REAL DEFAULT 0,
+            carbs_g REAL DEFAULT 0,
+            fat_g REAL DEFAULT 0,
+            fiber_g REAL DEFAULT 0,
+            sodium_mg REAL DEFAULT 0,
+            potassium_mg REAL DEFAULT 0,
+            sort_order INTEGER DEFAULT 0,
+            FOREIGN KEY (meal_id) REFERENCES meals(id) ON DELETE CASCADE
+        )""")
 
-    # ── exercise_images ──
-    c.execute("""CREATE TABLE IF NOT EXISTS exercise_images (
-        name TEXT PRIMARY KEY,
-        image_path TEXT DEFAULT '',
-        source TEXT DEFAULT 'wger'
-    )""")
+        # ── exercise_images ──
+        c.execute("""CREATE TABLE IF NOT EXISTS exercise_images (
+            name TEXT PRIMARY KEY,
+            image_path TEXT DEFAULT '',
+            source TEXT DEFAULT 'wger'
+        )""")
 
-    # ── smtp_settings ──
-    c.execute("""CREATE TABLE IF NOT EXISTS smtp_settings (
-        id INTEGER PRIMARY KEY DEFAULT 1,
-        host TEXT DEFAULT 'smtp.gmail.com', port INTEGER DEFAULT 587,
-        username TEXT DEFAULT '', password TEXT DEFAULT '',
-        from_name TEXT DEFAULT 'BodyBuilder Coach', use_tls INTEGER DEFAULT 1
-    )""")
-    c.execute("INSERT OR IGNORE INTO smtp_settings (id) VALUES (1)")
+        # ── smtp_settings ──
+        c.execute("""CREATE TABLE IF NOT EXISTS smtp_settings (
+            id INTEGER PRIMARY KEY DEFAULT 1,
+            host TEXT DEFAULT 'smtp.gmail.com', port INTEGER DEFAULT 587,
+            username TEXT DEFAULT '', password TEXT DEFAULT '',
+            from_name TEXT DEFAULT 'BodyBuilder Coach', use_tls INTEGER DEFAULT 1
+        )""")
+        c.execute("INSERT OR IGNORE INTO smtp_settings (id) VALUES (1)")
 
-    # ── Performance indexes ──
-    c.execute("CREATE INDEX IF NOT EXISTS idx_meal_items_meal_id         ON meal_items(meal_id)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_meals_athlete_id           ON meals(athlete_id)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_supplements_athlete_id     ON supplements(athlete_id)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_workout_exercises_session  ON workout_exercises(session_id)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_workout_sessions_plan      ON workout_sessions(plan_id)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_food_swaps_athlete_id      ON food_swaps(athlete_id)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_nutrition_foods_athlete_id ON nutrition_foods(athlete_id)")
+        # ── Performance indexes ──
+        c.execute("CREATE INDEX IF NOT EXISTS idx_meal_items_meal_id         ON meal_items(meal_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_meals_athlete_id           ON meals(athlete_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_supplements_athlete_id     ON supplements(athlete_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_workout_exercises_session  ON workout_exercises(session_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_workout_sessions_plan      ON workout_sessions(plan_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_food_swaps_athlete_id      ON food_swaps(athlete_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_nutrition_foods_athlete_id ON nutrition_foods(athlete_id)")
 
-    conn.commit()
-    conn.close()
+        conn.commit()
+        logger.info("Database initialised successfully")
+    except Exception as exc:
+        logger.error("Failed to initialise database: %s", exc, exc_info=True)
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def ensure_athlete_defaults(athlete_id: int):
     """Ensure activity_calories and meal_plan rows exist for this athlete."""
     # Standard Harris-Benedict TDEE multipliers per activity level
     DEFAULTS = [(1, 0, 1.200), (2, 0, 1.375), (3, 0, 1.550), (4, 0, 1.725), (5, 0, 1.900)]
-    conn = get_db()
-    for level, cal, mult in DEFAULTS:
-        conn.execute(
-            "INSERT OR IGNORE INTO activity_calories "
-            "(athlete_id, level, additional_calories, multiplier) VALUES (?,?,?,?)",
-            (athlete_id, level, cal, mult))
-    conn.execute("INSERT OR IGNORE INTO meal_plans (athlete_id) VALUES (?)", (athlete_id,))
-    conn.commit()
-    conn.close()
+    logger.debug("Ensuring defaults for athlete_id=%d", athlete_id)
+    with db_conn() as conn:
+        for level, cal, mult in DEFAULTS:
+            conn.execute(
+                "INSERT OR IGNORE INTO activity_calories "
+                "(athlete_id, level, additional_calories, multiplier) VALUES (?,?,?,?)",
+                (athlete_id, level, cal, mult))
+        conn.execute("INSERT OR IGNORE INTO meal_plans (athlete_id) VALUES (?)", (athlete_id,))
+        conn.commit()
 
 
 init_db()
@@ -1262,19 +1376,19 @@ class MealItemModel(BaseModel):
 
 @app.get("/api/version")
 def get_version():
-    conn = get_db()
-    row = conn.execute("SELECT * FROM version WHERE id=1").fetchone()
-    conn.close()
+    with db_conn() as conn:
+        row = conn.execute("SELECT * FROM version WHERE id=1").fetchone()
     data = dict(row) if row else {"major":1,"minor":0,"tiny":0,"notes":""}
     data["version_string"] = f"{data['major']}.{data['minor']}.{data['tiny']}"
     return data
 
 @app.put("/api/version")
 def update_version(body: VersionModel):
-    conn = get_db()
-    conn.execute("UPDATE version SET major=?,minor=?,tiny=?,notes=? WHERE id=1",
-                 (body.major,body.minor,body.tiny,body.notes))
-    conn.commit(); conn.close()
+    logger.info("Updating version: %d.%d.%d", body.major, body.minor, body.tiny)
+    with db_conn() as conn:
+        conn.execute("UPDATE version SET major=?,minor=?,tiny=?,notes=? WHERE id=1",
+                     (body.major,body.minor,body.tiny,body.notes))
+        conn.commit()
     return get_version()
 
 
@@ -1282,55 +1396,64 @@ def update_version(body: VersionModel):
 
 @app.get("/api/athletes")
 def list_athletes():
-    conn = get_db()
-    rows = conn.execute("SELECT * FROM athletes ORDER BY name").fetchall()
-    conn.close()
+    logger.debug("Listing all athletes")
+    with db_conn() as conn:
+        rows = conn.execute("SELECT * FROM athletes ORDER BY name").fetchall()
     return [athlete_row_to_dict(r) for r in rows]
 
 @app.post("/api/athletes")
 def create_athlete(body: AthleteModel):
-    conn = get_db()
-    cur = conn.execute("""INSERT INTO athletes
-        (name,email,birthdate,height_cm,weight_kg,body_fat_pct,sex,activity_level,
-         workout_days_per_week,workout_days,workout_time,phase,deficit,units)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (body.name,body.email,body.birthdate,body.height_cm,body.weight_kg,body.body_fat_pct,
-         body.sex,body.activity_level,body.workout_days_per_week,json.dumps(body.workout_days),
-         body.workout_time,body.phase,body.deficit,body.units))
-    new_id = cur.lastrowid
-    conn.commit(); conn.close()
+    logger.info("Creating athlete: name=%r", body.name)
+    with db_conn() as conn:
+        cur = conn.execute("""INSERT INTO athletes
+            (name,email,birthdate,height_cm,weight_kg,body_fat_pct,sex,activity_level,
+             workout_days_per_week,workout_days,workout_time,phase,deficit,units)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (body.name,body.email,body.birthdate,body.height_cm,body.weight_kg,body.body_fat_pct,
+             body.sex,body.activity_level,body.workout_days_per_week,json.dumps(body.workout_days),
+             body.workout_time,body.phase,body.deficit,body.units))
+        new_id = cur.lastrowid
+        conn.commit()
+    logger.info("Athlete created: id=%d name=%r", new_id, body.name)
     ensure_athlete_defaults(new_id)
     return get_athlete(new_id)
 
 @app.get("/api/athletes/{athlete_id}")
 def get_athlete(athlete_id: int):
-    conn = get_db()
-    row = conn.execute("SELECT * FROM athletes WHERE id=?", (athlete_id,)).fetchone()
-    conn.close()
-    if not row: raise HTTPException(404, "Athlete not found")
+    logger.debug("Fetching athlete id=%d", athlete_id)
+    with db_conn() as conn:
+        row = conn.execute("SELECT * FROM athletes WHERE id=?", (athlete_id,)).fetchone()
+    if not row:
+        logger.warning("Athlete not found: id=%d", athlete_id)
+        raise HTTPException(404, "Athlete not found")
     return athlete_row_to_dict(row)
 
 @app.put("/api/athletes/{athlete_id}")
 def update_athlete(athlete_id: int, body: AthleteModel):
-    conn = get_db()
-    if not conn.execute("SELECT id FROM athletes WHERE id=?", (athlete_id,)).fetchone():
-        conn.close(); raise HTTPException(404)
-    conn.execute("""UPDATE athletes SET name=?,email=?,birthdate=?,height_cm=?,weight_kg=?,
-        body_fat_pct=?,sex=?,activity_level=?,workout_days_per_week=?,workout_days=?,
-        workout_time=?,phase=?,deficit=?,units=?,status=? WHERE id=?""",
-        (body.name,body.email,body.birthdate,body.height_cm,body.weight_kg,body.body_fat_pct,
-         body.sex,body.activity_level,body.workout_days_per_week,json.dumps(body.workout_days),
-         body.workout_time,body.phase,body.deficit,body.units,body.status,athlete_id))
-    conn.commit(); conn.close()
+    logger.info("Updating athlete id=%d", athlete_id)
+    with db_conn() as conn:
+        if not conn.execute("SELECT id FROM athletes WHERE id=?", (athlete_id,)).fetchone():
+            logger.warning("Update failed — athlete not found: id=%d", athlete_id)
+            raise HTTPException(404, "Athlete not found")
+        conn.execute("""UPDATE athletes SET name=?,email=?,birthdate=?,height_cm=?,weight_kg=?,
+            body_fat_pct=?,sex=?,activity_level=?,workout_days_per_week=?,workout_days=?,
+            workout_time=?,phase=?,deficit=?,units=?,status=? WHERE id=?""",
+            (body.name,body.email,body.birthdate,body.height_cm,body.weight_kg,body.body_fat_pct,
+             body.sex,body.activity_level,body.workout_days_per_week,json.dumps(body.workout_days),
+             body.workout_time,body.phase,body.deficit,body.units,body.status,athlete_id))
+        conn.commit()
     return get_athlete(athlete_id)
 
 @app.delete("/api/athletes/{athlete_id}")
 def delete_athlete(athlete_id: int):
-    conn = get_db()
-    if not conn.execute("SELECT id FROM athletes WHERE id=?", (athlete_id,)).fetchone():
-        conn.close(); raise HTTPException(404, "Athlete not found")
-    conn.execute("DELETE FROM athletes WHERE id=?", (athlete_id,))
-    conn.commit(); conn.close()
+    logger.info("Deleting athlete id=%d", athlete_id)
+    with db_conn() as conn:
+        if not conn.execute("SELECT id FROM athletes WHERE id=?", (athlete_id,)).fetchone():
+            logger.warning("Delete failed — athlete not found: id=%d", athlete_id)
+            raise HTTPException(404, "Athlete not found")
+        conn.execute("DELETE FROM athletes WHERE id=?", (athlete_id,))
+        conn.commit()
+    logger.info("Athlete deleted: id=%d", athlete_id)
     return {"deleted": athlete_id}
 
 
@@ -1348,15 +1471,16 @@ def get_program(athlete_id: int):
 
 @app.put("/api/athletes/{athlete_id}/program")
 def update_program(athlete_id: int, body: ProgramModel):
-    conn = get_db()
-    existing = conn.execute("SELECT id FROM programs WHERE athlete_id=?", (athlete_id,)).fetchone()
-    if existing:
-        conn.execute("UPDATE programs SET start_date=?,end_date=?,payment_processed=? WHERE athlete_id=?",
-                     (body.start_date,body.end_date,int(body.payment_processed),athlete_id))
-    else:
-        conn.execute("INSERT INTO programs (athlete_id,start_date,end_date,payment_processed) VALUES (?,?,?,?)",
-                     (athlete_id,body.start_date,body.end_date,int(body.payment_processed)))
-    conn.commit(); conn.close()
+    logger.info("Updating program for athlete_id=%d", athlete_id)
+    with db_conn() as conn:
+        existing = conn.execute("SELECT id FROM programs WHERE athlete_id=?", (athlete_id,)).fetchone()
+        if existing:
+            conn.execute("UPDATE programs SET start_date=?,end_date=?,payment_processed=? WHERE athlete_id=?",
+                         (body.start_date,body.end_date,int(body.payment_processed),athlete_id))
+        else:
+            conn.execute("INSERT INTO programs (athlete_id,start_date,end_date,payment_processed) VALUES (?,?,?,?)",
+                         (athlete_id,body.start_date,body.end_date,int(body.payment_processed)))
+        conn.commit()
     return get_program(athlete_id)
 
 
@@ -1365,20 +1489,21 @@ def update_program(athlete_id: int, body: ProgramModel):
 @app.get("/api/athletes/{athlete_id}/activity-calories")
 def get_activity_calories(athlete_id: int):
     ensure_athlete_defaults(athlete_id)
-    conn = get_db()
-    rows = conn.execute("SELECT * FROM activity_calories WHERE athlete_id=? ORDER BY level", (athlete_id,)).fetchall()
-    conn.close()
+    with db_conn() as conn:
+        rows = conn.execute("SELECT * FROM activity_calories WHERE athlete_id=? ORDER BY level", (athlete_id,)).fetchall()
     return [dict(r) for r in rows]
 
 @app.put("/api/athletes/{athlete_id}/activity-calories/{level}")
 def update_activity_calories(athlete_id: int, level: int, body: ActivityCalModel):
-    if level<1 or level>5: raise HTTPException(400, "Level 1–5")
-    conn = get_db()
-    conn.execute("""INSERT INTO activity_calories (athlete_id,level,additional_calories,multiplier)
-        VALUES (?,?,?,?) ON CONFLICT(athlete_id,level) DO UPDATE SET
-        additional_calories=excluded.additional_calories, multiplier=excluded.multiplier""",
-        (athlete_id, level, body.additional_calories, body.multiplier))
-    conn.commit(); conn.close()
+    if level < 1 or level > 5:
+        raise HTTPException(400, "Activity level must be between 1 and 5")
+    logger.info("Updating activity calories: athlete_id=%d level=%d", athlete_id, level)
+    with db_conn() as conn:
+        conn.execute("""INSERT INTO activity_calories (athlete_id,level,additional_calories,multiplier)
+            VALUES (?,?,?,?) ON CONFLICT(athlete_id,level) DO UPDATE SET
+            additional_calories=excluded.additional_calories, multiplier=excluded.multiplier""",
+            (athlete_id, level, body.additional_calories, body.multiplier))
+        conn.commit()
     return get_activity_calories(athlete_id)
 
 @app.get("/api/athletes/{athlete_id}/daily-calories")
@@ -1388,11 +1513,11 @@ def get_daily_calories(athlete_id: int):
     rmr = ath["average"]
     level = ath["activity_level"]
     deficit = ath["deficit"]
-    conn = get_db()
-    ac = conn.execute(
-        "SELECT additional_calories, multiplier FROM activity_calories WHERE athlete_id=? AND level=?",
-        (athlete_id, level)).fetchone()
-    conn.close()
+    logger.debug("Computing daily calories: athlete_id=%d rmr=%.1f level=%d deficit=%.1f", athlete_id, rmr, level, deficit)
+    with db_conn() as conn:
+        ac = conn.execute(
+            "SELECT additional_calories, multiplier FROM activity_calories WHERE athlete_id=? AND level=?",
+            (athlete_id, level)).fetchone()
     additional = ac["additional_calories"] if ac else 0
     multiplier = ac["multiplier"] if ac else 1.2
     tdee   = rmr * multiplier + additional
@@ -1441,16 +1566,18 @@ def _get_plan_sessions_for_month(athlete_id: int, year: int, month: int, conn):
 
 @app.get("/api/athletes/{athlete_id}/calendar/month")
 def get_calendar_month(athlete_id: int, year: int, month: int):
-    if year<1900 or year>2200: raise HTTPException(400, "Invalid year")
-    if month<1 or month>12: raise HTTPException(400, "Invalid month")
-    conn = get_db()
-    prefix = f"{year:04d}-{month:02d}"
-    days = conn.execute("SELECT * FROM calendar_days WHERE athlete_id=? AND date LIKE ?",
-                        (athlete_id, f"{prefix}%")).fetchall()
-    events = conn.execute("SELECT * FROM calendar_events WHERE athlete_id=? AND date LIKE ? ORDER BY event_time",
-                          (athlete_id, f"{prefix}%")).fetchall()
-    plan_sessions = _get_plan_sessions_for_month(athlete_id, year, month, conn)
-    conn.close()
+    if year < 1900 or year > 2200:
+        raise HTTPException(400, "Invalid year — must be between 1900 and 2200")
+    if month < 1 or month > 12:
+        raise HTTPException(400, "Invalid month — must be between 1 and 12")
+    logger.debug("Calendar month: athlete_id=%d year=%d month=%d", athlete_id, year, month)
+    with db_conn() as conn:
+        prefix = f"{year:04d}-{month:02d}"
+        days = conn.execute("SELECT * FROM calendar_days WHERE athlete_id=? AND date LIKE ?",
+                            (athlete_id, f"{prefix}%")).fetchall()
+        events = conn.execute("SELECT * FROM calendar_events WHERE athlete_id=? AND date LIKE ? ORDER BY event_time",
+                              (athlete_id, f"{prefix}%")).fetchall()
+        plan_sessions = _get_plan_sessions_for_month(athlete_id, year, month, conn)
     return {"days":{r["date"]:dict(r) for r in days},
             "events":[dict(e) for e in events],
             "plan_sessions": plan_sessions}
@@ -1469,12 +1596,12 @@ def _require_date_str(date_str: str) -> str:
 @app.get("/api/athletes/{athlete_id}/calendar/day/{date_str}")
 def get_calendar_day(athlete_id: int, date_str: str):
     _require_date_str(date_str)
-    conn = get_db()
-    row = conn.execute("SELECT * FROM calendar_days WHERE athlete_id=? AND date=?",
-                       (athlete_id, date_str)).fetchone()
-    events = conn.execute("SELECT * FROM calendar_events WHERE athlete_id=? AND date=? ORDER BY event_time",
-                          (athlete_id, date_str)).fetchall()
-    conn.close()
+    logger.debug("Calendar day: athlete_id=%d date=%s", athlete_id, date_str)
+    with db_conn() as conn:
+        row = conn.execute("SELECT * FROM calendar_days WHERE athlete_id=? AND date=?",
+                           (athlete_id, date_str)).fetchone()
+        events = conn.execute("SELECT * FROM calendar_events WHERE athlete_id=? AND date=? ORDER BY event_time",
+                              (athlete_id, date_str)).fetchall()
     day = dict(row) if row else {"athlete_id":athlete_id,"date":date_str,"steps":0,
                                   "aerobic_type":"","aerobic_duration":0,"workout_notes":""}
     return {"day":day,"events":[dict(e) for e in events]}
@@ -1482,41 +1609,47 @@ def get_calendar_day(athlete_id: int, date_str: str):
 @app.put("/api/athletes/{athlete_id}/calendar/day/{date_str}")
 def update_calendar_day(athlete_id: int, date_str: str, body: CalDayModel):
     _require_date_str(date_str)
-    conn = get_db()
-    conn.execute("""INSERT INTO calendar_days (athlete_id,date,steps,aerobic_type,aerobic_duration,workout_notes)
-        VALUES (?,?,?,?,?,?)
-        ON CONFLICT(athlete_id,date) DO UPDATE SET steps=excluded.steps,
-        aerobic_type=excluded.aerobic_type,aerobic_duration=excluded.aerobic_duration,
-        workout_notes=excluded.workout_notes""",
-        (athlete_id,date_str,body.steps,body.aerobic_type,body.aerobic_duration,body.workout_notes))
-    conn.commit(); conn.close()
+    logger.info("Updating calendar day: athlete_id=%d date=%s", athlete_id, date_str)
+    with db_conn() as conn:
+        conn.execute("""INSERT INTO calendar_days (athlete_id,date,steps,aerobic_type,aerobic_duration,workout_notes)
+            VALUES (?,?,?,?,?,?)
+            ON CONFLICT(athlete_id,date) DO UPDATE SET steps=excluded.steps,
+            aerobic_type=excluded.aerobic_type,aerobic_duration=excluded.aerobic_duration,
+            workout_notes=excluded.workout_notes""",
+            (athlete_id,date_str,body.steps,body.aerobic_type,body.aerobic_duration,body.workout_notes))
+        conn.commit()
     return get_calendar_day(athlete_id, date_str)
 
 @app.post("/api/athletes/{athlete_id}/calendar/events")
 def create_event(athlete_id: int, body: EventModel):
-    conn = get_db()
-    cur = conn.execute("INSERT INTO calendar_events (athlete_id,date,title,description,event_time) VALUES (?,?,?,?,?)",
-                       (athlete_id,body.date,body.title,body.description,body.event_time))
-    eid = cur.lastrowid; conn.commit()
-    row = conn.execute("SELECT * FROM calendar_events WHERE id=?", (eid,)).fetchone()
-    conn.close(); return dict(row)
+    logger.info("Creating calendar event: athlete_id=%d date=%s title=%r", athlete_id, body.date, body.title)
+    with db_conn() as conn:
+        cur = conn.execute("INSERT INTO calendar_events (athlete_id,date,title,description,event_time) VALUES (?,?,?,?,?)",
+                           (athlete_id,body.date,body.title,body.description,body.event_time))
+        eid = cur.lastrowid
+        conn.commit()
+        row = conn.execute("SELECT * FROM calendar_events WHERE id=?", (eid,)).fetchone()
+    return dict(row)
 
 @app.put("/api/athletes/{athlete_id}/calendar/events/{event_id}")
 def update_event(athlete_id: int, event_id: int, body: EventModel):
-    conn = get_db()
-    if not conn.execute("SELECT id FROM calendar_events WHERE id=? AND athlete_id=?", (event_id,athlete_id)).fetchone():
-        conn.close(); raise HTTPException(404)
-    conn.execute("UPDATE calendar_events SET date=?,title=?,description=?,event_time=? WHERE id=?",
-                 (body.date,body.title,body.description,body.event_time,event_id))
-    conn.commit()
-    row = conn.execute("SELECT * FROM calendar_events WHERE id=?", (event_id,)).fetchone()
-    conn.close(); return dict(row)
+    logger.info("Updating calendar event: event_id=%d athlete_id=%d", event_id, athlete_id)
+    with db_conn() as conn:
+        if not conn.execute("SELECT id FROM calendar_events WHERE id=? AND athlete_id=?", (event_id,athlete_id)).fetchone():
+            logger.warning("Calendar event not found: event_id=%d athlete_id=%d", event_id, athlete_id)
+            raise HTTPException(404, "Event not found")
+        conn.execute("UPDATE calendar_events SET date=?,title=?,description=?,event_time=? WHERE id=?",
+                     (body.date,body.title,body.description,body.event_time,event_id))
+        conn.commit()
+        row = conn.execute("SELECT * FROM calendar_events WHERE id=?", (event_id,)).fetchone()
+    return dict(row)
 
 @app.delete("/api/athletes/{athlete_id}/calendar/events/{event_id}")
 def delete_event(athlete_id: int, event_id: int):
-    conn = get_db()
-    conn.execute("DELETE FROM calendar_events WHERE id=? AND athlete_id=?", (event_id,athlete_id))
-    conn.commit(); conn.close()
+    logger.info("Deleting calendar event: event_id=%d athlete_id=%d", event_id, athlete_id)
+    with db_conn() as conn:
+        conn.execute("DELETE FROM calendar_events WHERE id=? AND athlete_id=?", (event_id,athlete_id))
+        conn.commit()
     return {"deleted": event_id}
 
 
@@ -1525,9 +1658,12 @@ def delete_event(athlete_id: int, event_id: int):
 @app.get("/api/athletes/{athlete_id}/meal-plan")
 def get_meal_plan(athlete_id: int):
     ensure_athlete_defaults(athlete_id)
-    conn = get_db()
-    row = dict(conn.execute("SELECT * FROM meal_plans WHERE athlete_id=?", (athlete_id,)).fetchone())
-    conn.close()
+    with db_conn() as conn:
+        mp_row = conn.execute("SELECT * FROM meal_plans WHERE athlete_id=?", (athlete_id,)).fetchone()
+    if not mp_row:
+        logger.error("meal_plans row missing for athlete_id=%d even after ensure_defaults", athlete_id)
+        raise HTTPException(500, "Meal plan record could not be found — try reloading the page")
+    row = dict(mp_row)
     dc = get_daily_calories(athlete_id)
     ath = get_athlete(athlete_id)
     deficit = float(ath.get("deficit", 0))
@@ -1540,14 +1676,15 @@ def get_meal_plan(athlete_id: int):
 @app.put("/api/athletes/{athlete_id}/meal-plan")
 def update_meal_plan(athlete_id: int, body: MealPlanModel):
     ensure_athlete_defaults(athlete_id)
-    conn = get_db()
-    conn.execute("""UPDATE meal_plans SET protein_target=?,carbs_target=?,fat_target=?,fiber_target=?,
-        sodium_target=?,potassium_target=?,protein_actual=?,carbs_actual=?,fat_actual=?,fiber_actual=?,
-        sodium_actual=?,potassium_actual=? WHERE athlete_id=?""",
-        (body.protein_target,body.carbs_target,body.fat_target,body.fiber_target,body.sodium_target,
-         body.potassium_target,body.protein_actual,body.carbs_actual,body.fat_actual,body.fiber_actual,
-         body.sodium_actual,body.potassium_actual,athlete_id))
-    conn.commit(); conn.close()
+    logger.info("Updating meal plan: athlete_id=%d", athlete_id)
+    with db_conn() as conn:
+        conn.execute("""UPDATE meal_plans SET protein_target=?,carbs_target=?,fat_target=?,fiber_target=?,
+            sodium_target=?,potassium_target=?,protein_actual=?,carbs_actual=?,fat_actual=?,fiber_actual=?,
+            sodium_actual=?,potassium_actual=? WHERE athlete_id=?""",
+            (body.protein_target,body.carbs_target,body.fat_target,body.fiber_target,body.sodium_target,
+             body.potassium_target,body.protein_actual,body.carbs_actual,body.fat_actual,body.fiber_actual,
+             body.sodium_actual,body.potassium_actual,athlete_id))
+        conn.commit()
     return get_meal_plan(athlete_id)
 
 
@@ -1555,48 +1692,52 @@ def update_meal_plan(athlete_id: int, body: MealPlanModel):
 
 @app.get("/api/athletes/{athlete_id}/foods")
 def get_foods(athlete_id: int, category: Optional[str] = None):
-    conn = get_db()
-    if category:
-        rows = conn.execute("SELECT * FROM nutrition_foods WHERE athlete_id=? AND category=? ORDER BY name",
-                            (athlete_id,category)).fetchall()
-    else:
-        rows = conn.execute("SELECT * FROM nutrition_foods WHERE athlete_id=? ORDER BY name",
-                            (athlete_id,)).fetchall()
-    conn.close(); return [dict(r) for r in rows]
+    logger.debug("Listing foods: athlete_id=%d category=%r", athlete_id, category)
+    with db_conn() as conn:
+        if category:
+            rows = conn.execute("SELECT * FROM nutrition_foods WHERE athlete_id=? AND category=? ORDER BY name",
+                                (athlete_id,category)).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM nutrition_foods WHERE athlete_id=? ORDER BY name",
+                                (athlete_id,)).fetchall()
+    return [dict(r) for r in rows]
 
 @app.post("/api/athletes/{athlete_id}/foods")
 def create_food(athlete_id: int, body: FoodModel):
-    conn = get_db()
-    cur = conn.execute("""INSERT INTO nutrition_foods
-        (athlete_id,name,protein,carbs,fat,fiber,sodium,potassium,calories,serving_size,serving_g,category)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (athlete_id,body.name,body.protein,body.carbs,body.fat,body.fiber,
-         body.sodium,body.potassium,body.calories,body.serving_size,body.serving_g,body.category))
-    fid = cur.lastrowid; conn.commit()
-    row = conn.execute("SELECT * FROM nutrition_foods WHERE id=?", (fid,)).fetchone()
-    conn.close(); return dict(row)
+    logger.info("Creating food: athlete_id=%d name=%r", athlete_id, body.name)
+    with db_conn() as conn:
+        cur = conn.execute("""INSERT INTO nutrition_foods
+            (athlete_id,name,protein,carbs,fat,fiber,sodium,potassium,calories,serving_size,serving_g,category)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (athlete_id,body.name,body.protein,body.carbs,body.fat,body.fiber,
+             body.sodium,body.potassium,body.calories,body.serving_size,body.serving_g,body.category))
+        fid = cur.lastrowid
+        conn.commit()
+        row = conn.execute("SELECT * FROM nutrition_foods WHERE id=?", (fid,)).fetchone()
+    return dict(row)
 
 @app.put("/api/athletes/{athlete_id}/foods/{food_id}")
 def update_food(athlete_id: int, food_id: int, body: FoodModel):
-    conn = get_db()
-    # Authorise before mutating
-    if not conn.execute("SELECT id FROM nutrition_foods WHERE id=? AND athlete_id=?",
-                        (food_id, athlete_id)).fetchone():
-        conn.close(); raise HTTPException(404)
-    conn.execute("""UPDATE nutrition_foods SET name=?,protein=?,carbs=?,fat=?,fiber=?,sodium=?,
-        potassium=?,calories=?,serving_size=?,serving_g=?,category=? WHERE id=? AND athlete_id=?""",
-        (body.name,body.protein,body.carbs,body.fat,body.fiber,body.sodium,body.potassium,
-         body.calories,body.serving_size,body.serving_g,body.category,food_id,athlete_id))
-    conn.commit()
-    row = conn.execute("SELECT * FROM nutrition_foods WHERE id=?", (food_id,)).fetchone()
-    conn.close()
+    logger.info("Updating food: food_id=%d athlete_id=%d", food_id, athlete_id)
+    with db_conn() as conn:
+        if not conn.execute("SELECT id FROM nutrition_foods WHERE id=? AND athlete_id=?",
+                            (food_id, athlete_id)).fetchone():
+            logger.warning("Food not found: food_id=%d athlete_id=%d", food_id, athlete_id)
+            raise HTTPException(404, "Food item not found")
+        conn.execute("""UPDATE nutrition_foods SET name=?,protein=?,carbs=?,fat=?,fiber=?,sodium=?,
+            potassium=?,calories=?,serving_size=?,serving_g=?,category=? WHERE id=? AND athlete_id=?""",
+            (body.name,body.protein,body.carbs,body.fat,body.fiber,body.sodium,body.potassium,
+             body.calories,body.serving_size,body.serving_g,body.category,food_id,athlete_id))
+        conn.commit()
+        row = conn.execute("SELECT * FROM nutrition_foods WHERE id=?", (food_id,)).fetchone()
     return dict(row)
 
 @app.delete("/api/athletes/{athlete_id}/foods/{food_id}")
 def delete_food(athlete_id: int, food_id: int):
-    conn = get_db()
-    conn.execute("DELETE FROM nutrition_foods WHERE id=? AND athlete_id=?", (food_id,athlete_id))
-    conn.commit(); conn.close()
+    logger.info("Deleting food: food_id=%d athlete_id=%d", food_id, athlete_id)
+    with db_conn() as conn:
+        conn.execute("DELETE FROM nutrition_foods WHERE id=? AND athlete_id=?", (food_id,athlete_id))
+        conn.commit()
     return {"deleted": food_id}
 
 
@@ -1604,46 +1745,51 @@ def delete_food(athlete_id: int, food_id: int):
 
 @app.get("/api/athletes/{athlete_id}/food-swaps")
 def get_food_swaps(athlete_id: int):
-    conn = get_db()
-    rows = conn.execute(
-        "SELECT * FROM food_swaps WHERE athlete_id=? ORDER BY category, sort_order, id",
-        (athlete_id,)).fetchall()
-    conn.close(); return [dict(r) for r in rows]
+    with db_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM food_swaps WHERE athlete_id=? ORDER BY category, sort_order, id",
+            (athlete_id,)).fetchall()
+    return [dict(r) for r in rows]
 
 @app.post("/api/athletes/{athlete_id}/food-swaps")
 def create_food_swap(athlete_id: int, body: FoodSwapModel):
-    conn = get_db()
-    cur = conn.execute(
-        """INSERT INTO food_swaps
-           (athlete_id,category,source_name,source_amount,source_unit,swap_name,swap_amount,swap_unit,sort_order)
-           VALUES (?,?,?,?,?,?,?,?,?)""",
-        (athlete_id, body.category, body.source_name, body.source_amount, body.source_unit,
-         body.swap_name, body.swap_amount, body.swap_unit, body.sort_order))
-    sid = cur.lastrowid; conn.commit()
-    row = conn.execute("SELECT * FROM food_swaps WHERE id=?", (sid,)).fetchone()
-    conn.close(); return dict(row)
+    logger.info("Creating food swap: athlete_id=%d source=%r swap=%r", athlete_id, body.source_name, body.swap_name)
+    with db_conn() as conn:
+        cur = conn.execute(
+            """INSERT INTO food_swaps
+               (athlete_id,category,source_name,source_amount,source_unit,swap_name,swap_amount,swap_unit,sort_order)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            (athlete_id, body.category, body.source_name, body.source_amount, body.source_unit,
+             body.swap_name, body.swap_amount, body.swap_unit, body.sort_order))
+        sid = cur.lastrowid
+        conn.commit()
+        row = conn.execute("SELECT * FROM food_swaps WHERE id=?", (sid,)).fetchone()
+    return dict(row)
 
 @app.put("/api/athletes/{athlete_id}/food-swaps/{swap_id}")
 def update_food_swap(athlete_id: int, swap_id: int, body: FoodSwapModel):
-    conn = get_db()
-    row = conn.execute("SELECT id FROM food_swaps WHERE id=? AND athlete_id=?", (swap_id, athlete_id)).fetchone()
-    if not row: raise HTTPException(404, "Swap not found")
-    conn.execute(
-        """UPDATE food_swaps SET category=?,source_name=?,source_amount=?,source_unit=?,
-           swap_name=?,swap_amount=?,swap_unit=?,sort_order=? WHERE id=? AND athlete_id=?""",
-        (body.category, body.source_name, body.source_amount, body.source_unit,
-         body.swap_name, body.swap_amount, body.swap_unit, body.sort_order, swap_id, athlete_id))
-    conn.commit()
-    row = conn.execute("SELECT * FROM food_swaps WHERE id=?", (swap_id,)).fetchone()
-    conn.close(); return dict(row)
+    logger.info("Updating food swap: swap_id=%d athlete_id=%d", swap_id, athlete_id)
+    with db_conn() as conn:
+        if not conn.execute("SELECT id FROM food_swaps WHERE id=? AND athlete_id=?", (swap_id, athlete_id)).fetchone():
+            logger.warning("Food swap not found: swap_id=%d athlete_id=%d", swap_id, athlete_id)
+            raise HTTPException(404, "Food swap not found")
+        conn.execute(
+            """UPDATE food_swaps SET category=?,source_name=?,source_amount=?,source_unit=?,
+               swap_name=?,swap_amount=?,swap_unit=?,sort_order=? WHERE id=? AND athlete_id=?""",
+            (body.category, body.source_name, body.source_amount, body.source_unit,
+             body.swap_name, body.swap_amount, body.swap_unit, body.sort_order, swap_id, athlete_id))
+        conn.commit()
+        row = conn.execute("SELECT * FROM food_swaps WHERE id=?", (swap_id,)).fetchone()
+    return dict(row)
 
 @app.delete("/api/athletes/{athlete_id}/food-swaps/{swap_id}")
 def delete_food_swap(athlete_id: int, swap_id: int):
-    conn = get_db()
-    row = conn.execute("SELECT id FROM food_swaps WHERE id=? AND athlete_id=?", (swap_id, athlete_id)).fetchone()
-    if not row: raise HTTPException(404, "Swap not found")
-    conn.execute("DELETE FROM food_swaps WHERE id=? AND athlete_id=?", (swap_id, athlete_id))
-    conn.commit(); conn.close()
+    logger.info("Deleting food swap: swap_id=%d athlete_id=%d", swap_id, athlete_id)
+    with db_conn() as conn:
+        if not conn.execute("SELECT id FROM food_swaps WHERE id=? AND athlete_id=?", (swap_id, athlete_id)).fetchone():
+            raise HTTPException(404, "Food swap not found")
+        conn.execute("DELETE FROM food_swaps WHERE id=? AND athlete_id=?", (swap_id, athlete_id))
+        conn.commit()
     return {"deleted": swap_id}
 
 
@@ -1653,47 +1799,52 @@ DAYS_OF_WEEK = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","S
 
 @app.get("/api/athletes/{athlete_id}/supplements")
 def list_supplements(athlete_id: int, day_of_week: Optional[str] = None):
-    conn = get_db()
-    if day_of_week:
-        if day_of_week not in DAYS_OF_WEEK:
-            raise HTTPException(400, "Invalid day_of_week")
-        rows = conn.execute(
-            "SELECT * FROM supplements WHERE athlete_id=? AND day_of_week=? ORDER BY time_of_day, sort_order",
-            (athlete_id, day_of_week)).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT * FROM supplements WHERE athlete_id=? ORDER BY day_of_week, time_of_day, sort_order",
-            (athlete_id,)).fetchall()
-    conn.close()
+    if day_of_week and day_of_week not in DAYS_OF_WEEK:
+        raise HTTPException(400, f"Invalid day_of_week — must be one of: {', '.join(DAYS_OF_WEEK)}")
+    logger.debug("Listing supplements: athlete_id=%d day=%r", athlete_id, day_of_week)
+    with db_conn() as conn:
+        if day_of_week:
+            rows = conn.execute(
+                "SELECT * FROM supplements WHERE athlete_id=? AND day_of_week=? ORDER BY time_of_day, sort_order",
+                (athlete_id, day_of_week)).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM supplements WHERE athlete_id=? ORDER BY day_of_week, time_of_day, sort_order",
+                (athlete_id,)).fetchall()
     return [dict(r) for r in rows]
 
 @app.post("/api/athletes/{athlete_id}/supplements")
 def create_supplement(athlete_id: int, body: SupplementModel):
-    conn = get_db()
-    cur = conn.execute(
-        "INSERT INTO supplements (athlete_id,day_of_week,name,dosage,time_of_day,sort_order) VALUES (?,?,?,?,?,?)",
-        (athlete_id,body.day_of_week,body.name,body.dosage,body.time_of_day,body.sort_order))
-    sid = cur.lastrowid; conn.commit()
-    row = conn.execute("SELECT * FROM supplements WHERE id=?", (sid,)).fetchone()
-    conn.close(); return dict(row)
+    logger.info("Creating supplement: athlete_id=%d name=%r", athlete_id, body.name)
+    with db_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO supplements (athlete_id,day_of_week,name,dosage,time_of_day,sort_order) VALUES (?,?,?,?,?,?)",
+            (athlete_id,body.day_of_week,body.name,body.dosage,body.time_of_day,body.sort_order))
+        sid = cur.lastrowid
+        conn.commit()
+        row = conn.execute("SELECT * FROM supplements WHERE id=?", (sid,)).fetchone()
+    return dict(row)
 
 @app.put("/api/athletes/{athlete_id}/supplements/{sup_id}")
 def update_supplement(athlete_id: int, sup_id: int, body: SupplementModel):
-    conn = get_db()
-    if not conn.execute("SELECT id FROM supplements WHERE id=? AND athlete_id=?", (sup_id,athlete_id)).fetchone():
-        conn.close(); raise HTTPException(404)
-    conn.execute(
-        "UPDATE supplements SET day_of_week=?,name=?,dosage=?,time_of_day=?,sort_order=? WHERE id=?",
-        (body.day_of_week,body.name,body.dosage,body.time_of_day,body.sort_order,sup_id))
-    conn.commit()
-    row = conn.execute("SELECT * FROM supplements WHERE id=?", (sup_id,)).fetchone()
-    conn.close(); return dict(row)
+    logger.info("Updating supplement: sup_id=%d athlete_id=%d", sup_id, athlete_id)
+    with db_conn() as conn:
+        if not conn.execute("SELECT id FROM supplements WHERE id=? AND athlete_id=?", (sup_id,athlete_id)).fetchone():
+            logger.warning("Supplement not found: sup_id=%d athlete_id=%d", sup_id, athlete_id)
+            raise HTTPException(404, "Supplement not found")
+        conn.execute(
+            "UPDATE supplements SET day_of_week=?,name=?,dosage=?,time_of_day=?,sort_order=? WHERE id=?",
+            (body.day_of_week,body.name,body.dosage,body.time_of_day,body.sort_order,sup_id))
+        conn.commit()
+        row = conn.execute("SELECT * FROM supplements WHERE id=?", (sup_id,)).fetchone()
+    return dict(row)
 
 @app.delete("/api/athletes/{athlete_id}/supplements/{sup_id}")
 def delete_supplement(athlete_id: int, sup_id: int):
-    conn = get_db()
-    conn.execute("DELETE FROM supplements WHERE id=? AND athlete_id=?", (sup_id,athlete_id))
-    conn.commit(); conn.close()
+    logger.info("Deleting supplement: sup_id=%d athlete_id=%d", sup_id, athlete_id)
+    with db_conn() as conn:
+        conn.execute("DELETE FROM supplements WHERE id=? AND athlete_id=?", (sup_id,athlete_id))
+        conn.commit()
     return {"deleted": sup_id}
 
 
@@ -1718,83 +1869,94 @@ def _load_meal(conn, meal_id):
 
 @app.get("/api/athletes/{athlete_id}/meals")
 def list_meals(athlete_id: int, day_type: Optional[str] = None):
-    conn = get_db()
-    if day_type:
-        rows = conn.execute("SELECT id FROM meals WHERE athlete_id=? AND day_type=? ORDER BY sort_order, name",
-                            (athlete_id, day_type)).fetchall()
-    else:
-        rows = conn.execute("SELECT id FROM meals WHERE athlete_id=? ORDER BY day_type, sort_order, name",
-                            (athlete_id,)).fetchall()
-    result = [_load_meal(conn, r["id"]) for r in rows]
-    conn.close(); return result
+    logger.debug("Listing meals: athlete_id=%d day_type=%r", athlete_id, day_type)
+    with db_conn() as conn:
+        if day_type:
+            rows = conn.execute("SELECT id FROM meals WHERE athlete_id=? AND day_type=? ORDER BY sort_order, name",
+                                (athlete_id, day_type)).fetchall()
+        else:
+            rows = conn.execute("SELECT id FROM meals WHERE athlete_id=? ORDER BY day_type, sort_order, name",
+                                (athlete_id,)).fetchall()
+        result = [_load_meal(conn, r["id"]) for r in rows]
+    return result
 
 @app.post("/api/athletes/{athlete_id}/meals")
 def create_meal(athlete_id: int, body: MealModel):
-    conn = get_db()
-    cur = conn.execute("INSERT INTO meals (athlete_id,day_type,name,sort_order) VALUES (?,?,?,?)",
-                       (athlete_id,body.day_type,body.name,body.sort_order))
-    mid = cur.lastrowid; conn.commit()
-    result = _load_meal(conn, mid); conn.close(); return result
+    logger.info("Creating meal: athlete_id=%d name=%r day_type=%r", athlete_id, body.name, body.day_type)
+    with db_conn() as conn:
+        cur = conn.execute("INSERT INTO meals (athlete_id,day_type,name,sort_order) VALUES (?,?,?,?)",
+                           (athlete_id,body.day_type,body.name,body.sort_order))
+        mid = cur.lastrowid
+        conn.commit()
+        result = _load_meal(conn, mid)
+    return result
 
 @app.put("/api/athletes/{athlete_id}/meals/{meal_id}")
 def update_meal(athlete_id: int, meal_id: int, body: MealModel):
-    conn = get_db()
-    if not conn.execute("SELECT id FROM meals WHERE id=? AND athlete_id=?", (meal_id,athlete_id)).fetchone():
-        conn.close(); raise HTTPException(404)
-    conn.execute("UPDATE meals SET day_type=?,name=?,sort_order=? WHERE id=?",
-                 (body.day_type,body.name,body.sort_order,meal_id))
-    conn.commit()
-    result = _load_meal(conn, meal_id); conn.close(); return result
+    logger.info("Updating meal: meal_id=%d athlete_id=%d", meal_id, athlete_id)
+    with db_conn() as conn:
+        if not conn.execute("SELECT id FROM meals WHERE id=? AND athlete_id=?", (meal_id,athlete_id)).fetchone():
+            logger.warning("Meal not found: meal_id=%d athlete_id=%d", meal_id, athlete_id)
+            raise HTTPException(404, "Meal not found")
+        conn.execute("UPDATE meals SET day_type=?,name=?,sort_order=? WHERE id=?",
+                     (body.day_type,body.name,body.sort_order,meal_id))
+        conn.commit()
+        result = _load_meal(conn, meal_id)
+    return result
 
 @app.delete("/api/athletes/{athlete_id}/meals/{meal_id}")
 def delete_meal(athlete_id: int, meal_id: int):
-    conn = get_db()
-    conn.execute("DELETE FROM meals WHERE id=? AND athlete_id=?", (meal_id,athlete_id))
-    conn.commit(); conn.close()
+    logger.info("Deleting meal: meal_id=%d athlete_id=%d", meal_id, athlete_id)
+    with db_conn() as conn:
+        conn.execute("DELETE FROM meals WHERE id=? AND athlete_id=?", (meal_id,athlete_id))
+        conn.commit()
     return {"deleted": meal_id}
 
 @app.post("/api/meals/{meal_id}/items")
 def create_meal_item(meal_id: int, body: MealItemModel):
-    conn = get_db()
-    cur = conn.execute(
-        """INSERT INTO meal_items (meal_id,source_type,food_name,quantity,weight_g,serving_size,
-           protein_g,carbs_g,fat_g,fiber_g,sodium_mg,potassium_mg,sort_order)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (meal_id,body.source_type,body.food_name,body.quantity,body.weight_g,body.serving_size,
-         body.protein_g,body.carbs_g,body.fat_g,body.fiber_g,body.sodium_mg,body.potassium_mg,body.sort_order))
-    iid = cur.lastrowid; conn.commit()
-    row = conn.execute("SELECT * FROM meal_items WHERE id=?", (iid,)).fetchone()
-    conn.close(); return dict(row)
+    logger.info("Creating meal item: meal_id=%d food=%r", meal_id, body.food_name)
+    with db_conn() as conn:
+        cur = conn.execute(
+            """INSERT INTO meal_items (meal_id,source_type,food_name,quantity,weight_g,serving_size,
+               protein_g,carbs_g,fat_g,fiber_g,sodium_mg,potassium_mg,sort_order)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (meal_id,body.source_type,body.food_name,body.quantity,body.weight_g,body.serving_size,
+             body.protein_g,body.carbs_g,body.fat_g,body.fiber_g,body.sodium_mg,body.potassium_mg,body.sort_order))
+        iid = cur.lastrowid
+        conn.commit()
+        row = conn.execute("SELECT * FROM meal_items WHERE id=?", (iid,)).fetchone()
+    return dict(row)
 
 @app.put("/api/meal-items/{item_id}")
 def update_meal_item(item_id: int, body: MealItemModel):
-    conn = get_db()
-    # Verify item exists before updating
-    if not conn.execute("SELECT id FROM meal_items WHERE id=?", (item_id,)).fetchone():
-        conn.close(); raise HTTPException(404, "Meal item not found")
-    conn.execute(
-        """UPDATE meal_items SET source_type=?,food_name=?,quantity=?,weight_g=?,serving_size=?,
-           protein_g=?,carbs_g=?,fat_g=?,fiber_g=?,sodium_mg=?,potassium_mg=?,sort_order=? WHERE id=?""",
-        (body.source_type,body.food_name,body.quantity,body.weight_g,body.serving_size,
-         body.protein_g,body.carbs_g,body.fat_g,body.fiber_g,body.sodium_mg,body.potassium_mg,
-         body.sort_order,item_id))
-    conn.commit()
-    row = conn.execute("SELECT * FROM meal_items WHERE id=?", (item_id,)).fetchone()
-    conn.close()
+    logger.info("Updating meal item: item_id=%d food=%r", item_id, body.food_name)
+    with db_conn() as conn:
+        if not conn.execute("SELECT id FROM meal_items WHERE id=?", (item_id,)).fetchone():
+            logger.warning("Meal item not found: item_id=%d", item_id)
+            raise HTTPException(404, "Meal item not found")
+        conn.execute(
+            """UPDATE meal_items SET source_type=?,food_name=?,quantity=?,weight_g=?,serving_size=?,
+               protein_g=?,carbs_g=?,fat_g=?,fiber_g=?,sodium_mg=?,potassium_mg=?,sort_order=? WHERE id=?""",
+            (body.source_type,body.food_name,body.quantity,body.weight_g,body.serving_size,
+             body.protein_g,body.carbs_g,body.fat_g,body.fiber_g,body.sodium_mg,body.potassium_mg,
+             body.sort_order,item_id))
+        conn.commit()
+        row = conn.execute("SELECT * FROM meal_items WHERE id=?", (item_id,)).fetchone()
     return dict(row)
 
 @app.delete("/api/meal-items/{item_id}")
 def delete_meal_item(item_id: int):
-    conn = get_db()
-    # Verify item exists and its parent meal is valid (ownership chain)
-    row = conn.execute(
-        "SELECT mi.id FROM meal_items mi "
-        "JOIN meals m ON m.id = mi.meal_id "
-        "WHERE mi.id=?", (item_id,)
-    ).fetchone()
-    if not row: raise HTTPException(404, "Meal item not found")
-    conn.execute("DELETE FROM meal_items WHERE id=?", (item_id,))
-    conn.commit(); conn.close()
+    logger.info("Deleting meal item: item_id=%d", item_id)
+    with db_conn() as conn:
+        row = conn.execute(
+            "SELECT mi.id FROM meal_items mi "
+            "JOIN meals m ON m.id = mi.meal_id "
+            "WHERE mi.id=?", (item_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "Meal item not found")
+        conn.execute("DELETE FROM meal_items WHERE id=?", (item_id,))
+        conn.commit()
     return {"deleted": item_id}
 
 
@@ -1823,51 +1985,59 @@ def _load_plan(conn, plan_id):
 
 @app.get("/api/athletes/{athlete_id}/workout-plans")
 def list_workout_plans(athlete_id: int):
-    conn = get_db()
-    rows = conn.execute("SELECT id FROM workout_plans WHERE athlete_id=? ORDER BY sort_order, title",
-                        (athlete_id,)).fetchall()
-    result = [_load_plan(conn, r["id"]) for r in rows]
-    conn.close(); return result
+    logger.debug("Listing workout plans: athlete_id=%d", athlete_id)
+    with db_conn() as conn:
+        rows = conn.execute("SELECT id FROM workout_plans WHERE athlete_id=? ORDER BY sort_order, title",
+                            (athlete_id,)).fetchall()
+        result = [_load_plan(conn, r["id"]) for r in rows]
+    return result
 
 @app.post("/api/athletes/{athlete_id}/workout-plans")
 def create_workout_plan(athlete_id: int, body: WorkoutPlanModel):
-    conn = get_db()
-    cur = conn.execute("""INSERT INTO workout_plans (athlete_id,title,start_date,end_date,notes,warmup_instructions,sort_order,rest_days)
-        VALUES (?,?,?,?,?,?,?,?)""",
-        (athlete_id,body.title,body.start_date,body.end_date,body.notes,body.warmup_instructions,body.sort_order,json.dumps(body.rest_days or [])))
-    pid = cur.lastrowid; conn.commit()
-    result = _load_plan(conn, pid); conn.close(); return result
+    logger.info("Creating workout plan: athlete_id=%d title=%r", athlete_id, body.title)
+    with db_conn() as conn:
+        cur = conn.execute("""INSERT INTO workout_plans (athlete_id,title,start_date,end_date,notes,warmup_instructions,sort_order,rest_days)
+            VALUES (?,?,?,?,?,?,?,?)""",
+            (athlete_id,body.title,body.start_date,body.end_date,body.notes,body.warmup_instructions,body.sort_order,json.dumps(body.rest_days or [])))
+        pid = cur.lastrowid
+        conn.commit()
+        result = _load_plan(conn, pid)
+    return result
 
 @app.put("/api/athletes/{athlete_id}/workout-plans/{plan_id}")
 def update_workout_plan(athlete_id: int, plan_id: int, body: WorkoutPlanModel):
-    conn = get_db()
-    conn.execute("""UPDATE workout_plans SET title=?,start_date=?,end_date=?,notes=?,warmup_instructions=?,sort_order=?,rest_days=?
-        WHERE id=? AND athlete_id=?""",
-        (body.title,body.start_date,body.end_date,body.notes,body.warmup_instructions,body.sort_order,json.dumps(body.rest_days or []),plan_id,athlete_id))
-    conn.commit()
-    result = _load_plan(conn, plan_id); conn.close(); return result
+    logger.info("Updating workout plan: plan_id=%d athlete_id=%d", plan_id, athlete_id)
+    with db_conn() as conn:
+        conn.execute("""UPDATE workout_plans SET title=?,start_date=?,end_date=?,notes=?,warmup_instructions=?,sort_order=?,rest_days=?
+            WHERE id=? AND athlete_id=?""",
+            (body.title,body.start_date,body.end_date,body.notes,body.warmup_instructions,body.sort_order,json.dumps(body.rest_days or []),plan_id,athlete_id))
+        conn.commit()
+        result = _load_plan(conn, plan_id)
+    return result
 
 @app.delete("/api/athletes/{athlete_id}/workout-plans/{plan_id}")
 def delete_workout_plan(athlete_id: int, plan_id: int):
-    conn = get_db()
-    conn.execute("DELETE FROM workout_plans WHERE id=? AND athlete_id=?", (plan_id,athlete_id))
-    conn.commit(); conn.close()
+    logger.info("Deleting workout plan: plan_id=%d athlete_id=%d", plan_id, athlete_id)
+    with db_conn() as conn:
+        conn.execute("DELETE FROM workout_plans WHERE id=? AND athlete_id=?", (plan_id,athlete_id))
+        conn.commit()
     return {"deleted": plan_id}
 
 @app.patch("/api/athletes/{athlete_id}/workout-plans/{plan_id}/rest-days")
 def toggle_rest_day(athlete_id: int, plan_id: int, body: RestDayToggleModel):
-    conn = get_db()
-    row = conn.execute("SELECT rest_days FROM workout_plans WHERE id=? AND athlete_id=?", (plan_id, athlete_id)).fetchone()
-    if not row: conn.close(); raise HTTPException(404, "Plan not found")
-    current = set(json.loads(row["rest_days"] or "[]"))
-    if body.day in current:
-        current.discard(body.day)
-    else:
-        current.add(body.day)
-    conn.execute("UPDATE workout_plans SET rest_days=? WHERE id=?", (json.dumps(sorted(current)), plan_id))
-    conn.commit()
-    result = _load_plan(conn, plan_id)
-    conn.close()
+    logger.info("Toggling rest day: plan_id=%d day=%r", plan_id, body.day)
+    with db_conn() as conn:
+        row = conn.execute("SELECT rest_days FROM workout_plans WHERE id=? AND athlete_id=?", (plan_id, athlete_id)).fetchone()
+        if not row:
+            raise HTTPException(404, "Workout plan not found")
+        current = set(json.loads(row["rest_days"] or "[]"))
+        if body.day in current:
+            current.discard(body.day)
+        else:
+            current.add(body.day)
+        conn.execute("UPDATE workout_plans SET rest_days=? WHERE id=?", (json.dumps(sorted(current)), plan_id))
+        conn.commit()
+        result = _load_plan(conn, plan_id)
     return result
 
 
@@ -1875,148 +2045,161 @@ def toggle_rest_day(athlete_id: int, plan_id: int, body: RestDayToggleModel):
 
 @app.post("/api/workout-sessions")
 def create_session(body: WorkoutSessionModel):
-    conn = get_db()
-    if not conn.execute("SELECT id FROM workout_plans WHERE id=?", (body.plan_id,)).fetchone():
-        conn.close(); raise HTTPException(404, "Workout plan not found")
-    cur = conn.execute("""INSERT INTO workout_sessions (plan_id,day_of_week,session_title,muscle_groups,session_notes,sort_order)
-        VALUES (?,?,?,?,?,?)""",
-        (body.plan_id,body.day_of_week,body.session_title,json.dumps(body.muscle_groups),
-         body.session_notes,body.sort_order))
-    sid = cur.lastrowid; conn.commit()
-    row = conn.execute("SELECT * FROM workout_sessions WHERE id=?", (sid,)).fetchone()
-    s = dict(row); s["muscle_groups"] = json.loads(s.get("muscle_groups") or "[]")
-    s["exercises"] = []; conn.close(); return s
+    logger.info("Creating session: plan_id=%d day=%r title=%r", body.plan_id, body.day_of_week, body.session_title)
+    with db_conn() as conn:
+        if not conn.execute("SELECT id FROM workout_plans WHERE id=?", (body.plan_id,)).fetchone():
+            raise HTTPException(404, "Workout plan not found")
+        cur = conn.execute("""INSERT INTO workout_sessions (plan_id,day_of_week,session_title,muscle_groups,session_notes,sort_order)
+            VALUES (?,?,?,?,?,?)""",
+            (body.plan_id,body.day_of_week,body.session_title,json.dumps(body.muscle_groups),
+             body.session_notes,body.sort_order))
+        sid = cur.lastrowid
+        conn.commit()
+        row = conn.execute("SELECT * FROM workout_sessions WHERE id=?", (sid,)).fetchone()
+    s = dict(row)
+    s["muscle_groups"] = json.loads(s.get("muscle_groups") or "[]")
+    s["exercises"] = []
+    return s
 
 @app.put("/api/workout-sessions/{session_id}")
 def update_session(session_id: int, body: WorkoutSessionModel):
-    conn = get_db()
-    # Verify session exists and belongs to the stated plan
-    row = conn.execute("SELECT plan_id FROM workout_sessions WHERE id=?", (session_id,)).fetchone()
-    if not row: raise HTTPException(404, "Session not found")
-    if row["plan_id"] != body.plan_id:
-        raise HTTPException(403, "Session does not belong to that plan")
-    conn.execute("""UPDATE workout_sessions SET plan_id=?,day_of_week=?,session_title=?,muscle_groups=?,
-        session_notes=?,sort_order=? WHERE id=?""",
-        (body.plan_id,body.day_of_week,body.session_title,json.dumps(body.muscle_groups),
-         body.session_notes,body.sort_order,session_id))
-    conn.commit()
-    row = conn.execute("SELECT * FROM workout_sessions WHERE id=?", (session_id,)).fetchone()
-    s = dict(row); s["muscle_groups"] = json.loads(s.get("muscle_groups") or "[]")
-    exs = conn.execute("SELECT * FROM workout_exercises WHERE session_id=? ORDER BY sort_order", (session_id,)).fetchall()
-    s["exercises"] = [{**dict(e),"sets_json":json.loads(e.get("sets_json") or "[]")} for e in exs]
-    conn.close(); return s
+    logger.info("Updating session: session_id=%d", session_id)
+    with db_conn() as conn:
+        row = conn.execute("SELECT plan_id FROM workout_sessions WHERE id=?", (session_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, "Session not found")
+        if row["plan_id"] != body.plan_id:
+            raise HTTPException(403, "Session does not belong to that plan")
+        conn.execute("""UPDATE workout_sessions SET plan_id=?,day_of_week=?,session_title=?,muscle_groups=?,
+            session_notes=?,sort_order=? WHERE id=?""",
+            (body.plan_id,body.day_of_week,body.session_title,json.dumps(body.muscle_groups),
+             body.session_notes,body.sort_order,session_id))
+        conn.commit()
+        row = conn.execute("SELECT * FROM workout_sessions WHERE id=?", (session_id,)).fetchone()
+        s = dict(row)
+        s["muscle_groups"] = json.loads(s.get("muscle_groups") or "[]")
+        exs = conn.execute("SELECT * FROM workout_exercises WHERE session_id=? ORDER BY sort_order", (session_id,)).fetchall()
+        s["exercises"] = [{**dict(e),"sets_json":json.loads(e.get("sets_json") or "[]")} for e in exs]
+    return s
 
 @app.delete("/api/workout-sessions/{session_id}")
 def delete_session(session_id: int):
-    conn = get_db()
-    # Verify session exists and its parent plan is valid (ownership chain)
-    row = conn.execute(
-        "SELECT ws.id FROM workout_sessions ws "
-        "JOIN workout_plans wp ON wp.id = ws.plan_id "
-        "WHERE ws.id=?", (session_id,)
-    ).fetchone()
-    if not row: raise HTTPException(404, "Session not found")
-    conn.execute("DELETE FROM workout_sessions WHERE id=?", (session_id,))
-    conn.commit(); conn.close()
+    logger.info("Deleting session: session_id=%d", session_id)
+    with db_conn() as conn:
+        row = conn.execute(
+            "SELECT ws.id FROM workout_sessions ws "
+            "JOIN workout_plans wp ON wp.id = ws.plan_id "
+            "WHERE ws.id=?", (session_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "Session not found")
+        conn.execute("DELETE FROM workout_sessions WHERE id=?", (session_id,))
+        conn.commit()
     return {"deleted": session_id}
 
 @app.post("/api/workout-sessions/{session_id}/clone")
 def clone_session(session_id: int, body: WorkoutSessionModel):
     """Create a new session copying all exercises from an existing session as a template."""
-    conn = get_db()
-    # Create the new session
-    cur = conn.execute("""INSERT INTO workout_sessions (plan_id,day_of_week,session_title,muscle_groups,session_notes,sort_order)
-        VALUES (?,?,?,?,?,0)""",
-        (body.plan_id, body.day_of_week, body.session_title,
-         json.dumps(body.muscle_groups), body.session_notes))
-    new_sid = cur.lastrowid
-    # Copy all exercises from source session
-    src_exs = conn.execute("SELECT * FROM workout_exercises WHERE session_id=? ORDER BY sort_order",
-                           (session_id,)).fetchall()
-    for ex in src_exs:
-        conn.execute(
-            """INSERT INTO workout_exercises
-               (session_id,name,muscle_group,set_type,sets_json,rep_range,rir,tempo,intensifiers,exercise_notes,warmup_instructions,image_url,sort_order)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (new_sid, ex["name"], ex["muscle_group"], ex["set_type"],
-             ex["sets_json"], ex["rep_range"], ex["rir"], ex["tempo"],
-             ex["intensifiers"], ex["exercise_notes"], ex.get("warmup_instructions",""),
-             ex.get("image_url",""), ex["sort_order"]))
-    conn.commit()
-    # Return the full plan so the UI can refresh
-    plan_row = conn.execute("SELECT plan_id FROM workout_sessions WHERE id=?", (new_sid,)).fetchone()
-    result = _load_plan(conn, plan_row["plan_id"])
-    conn.close(); return result
+    logger.info("Cloning session: source_session_id=%d → plan_id=%d day=%r", session_id, body.plan_id, body.day_of_week)
+    with db_conn() as conn:
+        cur = conn.execute("""INSERT INTO workout_sessions (plan_id,day_of_week,session_title,muscle_groups,session_notes,sort_order)
+            VALUES (?,?,?,?,?,0)""",
+            (body.plan_id, body.day_of_week, body.session_title,
+             json.dumps(body.muscle_groups), body.session_notes))
+        new_sid = cur.lastrowid
+        src_exs = conn.execute("SELECT * FROM workout_exercises WHERE session_id=? ORDER BY sort_order",
+                               (session_id,)).fetchall()
+        for ex in src_exs:
+            conn.execute(
+                """INSERT INTO workout_exercises
+                   (session_id,name,muscle_group,set_type,sets_json,rep_range,rir,tempo,intensifiers,exercise_notes,warmup_instructions,image_url,sort_order)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (new_sid, ex["name"], ex["muscle_group"], ex["set_type"],
+                 ex["sets_json"], ex["rep_range"], ex["rir"], ex["tempo"],
+                 ex["intensifiers"], ex["exercise_notes"], ex.get("warmup_instructions",""),
+                 ex.get("image_url",""), ex["sort_order"]))
+        conn.commit()
+        plan_row = conn.execute("SELECT plan_id FROM workout_sessions WHERE id=?", (new_sid,)).fetchone()
+        result = _load_plan(conn, plan_row["plan_id"])
+    logger.info("Session cloned: new_session_id=%d", new_sid)
+    return result
 
 @app.get("/api/athletes/{athlete_id}/workout-sessions/all")
 def list_all_sessions(athlete_id: int):
     """Return all sessions across all plans, with exercises — used for the template picker."""
-    conn = get_db()
-    plans = conn.execute("SELECT id, title FROM workout_plans WHERE athlete_id=? ORDER BY sort_order, title",
-                         (athlete_id,)).fetchall()
-    result = []
-    for p in plans:
-        sessions = conn.execute(
-            "SELECT * FROM workout_sessions WHERE plan_id=? ORDER BY sort_order, day_of_week",
-            (p["id"],)).fetchall()
-        for s in sessions:
-            sess = dict(s)
-            sess["plan_title"] = p["title"]
-            sess["muscle_groups"] = json.loads(sess.get("muscle_groups") or "[]")
-            exs = conn.execute("SELECT * FROM workout_exercises WHERE session_id=? ORDER BY sort_order",
-                               (s["id"],)).fetchall()
-            sess["exercises"] = [{**dict(e), "sets_json": json.loads(e.get("sets_json") or "[]")} for e in exs]
-            result.append(sess)
-    conn.close(); return result
+    logger.debug("Listing all sessions: athlete_id=%d", athlete_id)
+    with db_conn() as conn:
+        plans = conn.execute("SELECT id, title FROM workout_plans WHERE athlete_id=? ORDER BY sort_order, title",
+                             (athlete_id,)).fetchall()
+        result = []
+        for p in plans:
+            sessions = conn.execute(
+                "SELECT * FROM workout_sessions WHERE plan_id=? ORDER BY sort_order, day_of_week",
+                (p["id"],)).fetchall()
+            for s in sessions:
+                sess = dict(s)
+                sess["plan_title"] = p["title"]
+                sess["muscle_groups"] = json.loads(sess.get("muscle_groups") or "[]")
+                exs = conn.execute("SELECT * FROM workout_exercises WHERE session_id=? ORDER BY sort_order",
+                                   (s["id"],)).fetchall()
+                sess["exercises"] = [{**dict(e), "sets_json": json.loads(e.get("sets_json") or "[]")} for e in exs]
+                result.append(sess)
+    return result
 
 
 # ─── Workout Exercises ────────────────────────────────────────────────────────
 
 @app.post("/api/workout-exercises")
 def create_exercise(body: WorkoutExerciseModel):
-    conn = get_db()
-    cur = conn.execute(
-        """INSERT INTO workout_exercises
-           (session_id,name,muscle_group,set_type,sets_json,rep_range,rir,tempo,intensifiers,exercise_notes,warmup_instructions,image_url,sort_order)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (body.session_id,body.name,body.muscle_group,body.set_type,json.dumps(body.sets_json),
-         body.rep_range,body.rir,body.tempo,body.intensifiers,body.exercise_notes,body.warmup_instructions,body.image_url,body.sort_order))
-    eid = cur.lastrowid; conn.commit()
-    row = conn.execute("SELECT * FROM workout_exercises WHERE id=?", (eid,)).fetchone()
-    e = dict(row); e["sets_json"] = json.loads(e.get("sets_json") or "[]")
-    conn.close(); return e
+    logger.info("Creating exercise: session_id=%d name=%r", body.session_id, body.name)
+    with db_conn() as conn:
+        cur = conn.execute(
+            """INSERT INTO workout_exercises
+               (session_id,name,muscle_group,set_type,sets_json,rep_range,rir,tempo,intensifiers,exercise_notes,warmup_instructions,image_url,sort_order)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (body.session_id,body.name,body.muscle_group,body.set_type,json.dumps(body.sets_json),
+             body.rep_range,body.rir,body.tempo,body.intensifiers,body.exercise_notes,body.warmup_instructions,body.image_url,body.sort_order))
+        eid = cur.lastrowid
+        conn.commit()
+        row = conn.execute("SELECT * FROM workout_exercises WHERE id=?", (eid,)).fetchone()
+    e = dict(row)
+    e["sets_json"] = json.loads(e.get("sets_json") or "[]")
+    return e
 
 @app.put("/api/workout-exercises/{exercise_id}")
 def update_exercise(exercise_id: int, body: WorkoutExerciseModel):
-    conn = get_db()
-    # Verify exercise exists and belongs to the stated session
-    ex_row = conn.execute("SELECT session_id FROM workout_exercises WHERE id=?", (exercise_id,)).fetchone()
-    if not ex_row: raise HTTPException(404, "Exercise not found")
-    if ex_row["session_id"] != body.session_id:
-        raise HTTPException(403, "Exercise does not belong to that session")
-    conn.execute(
-        """UPDATE workout_exercises SET session_id=?,name=?,muscle_group=?,set_type=?,sets_json=?,
-           rep_range=?,rir=?,tempo=?,intensifiers=?,exercise_notes=?,warmup_instructions=?,image_url=?,sort_order=? WHERE id=?""",
-        (body.session_id,body.name,body.muscle_group,body.set_type,json.dumps(body.sets_json),
-         body.rep_range,body.rir,body.tempo,body.intensifiers,body.exercise_notes,body.warmup_instructions,body.image_url,body.sort_order,exercise_id))
-    conn.commit()
-    row = conn.execute("SELECT * FROM workout_exercises WHERE id=?", (exercise_id,)).fetchone()
-    e = dict(row); e["sets_json"] = json.loads(e.get("sets_json") or "[]")
-    conn.close(); return e
+    logger.info("Updating exercise: exercise_id=%d name=%r", exercise_id, body.name)
+    with db_conn() as conn:
+        ex_row = conn.execute("SELECT session_id FROM workout_exercises WHERE id=?", (exercise_id,)).fetchone()
+        if not ex_row:
+            raise HTTPException(404, "Exercise not found")
+        if ex_row["session_id"] != body.session_id:
+            raise HTTPException(403, "Exercise does not belong to that session")
+        conn.execute(
+            """UPDATE workout_exercises SET session_id=?,name=?,muscle_group=?,set_type=?,sets_json=?,
+               rep_range=?,rir=?,tempo=?,intensifiers=?,exercise_notes=?,warmup_instructions=?,image_url=?,sort_order=? WHERE id=?""",
+            (body.session_id,body.name,body.muscle_group,body.set_type,json.dumps(body.sets_json),
+             body.rep_range,body.rir,body.tempo,body.intensifiers,body.exercise_notes,body.warmup_instructions,body.image_url,body.sort_order,exercise_id))
+        conn.commit()
+        row = conn.execute("SELECT * FROM workout_exercises WHERE id=?", (exercise_id,)).fetchone()
+    e = dict(row)
+    e["sets_json"] = json.loads(e.get("sets_json") or "[]")
+    return e
 
 @app.delete("/api/workout-exercises/{exercise_id}")
 def delete_exercise(exercise_id: int):
-    conn = get_db()
-    # Verify exercise exists and its ownership chain (session → plan) is intact
-    row = conn.execute(
-        "SELECT we.id FROM workout_exercises we "
-        "JOIN workout_sessions ws ON ws.id = we.session_id "
-        "JOIN workout_plans wp ON wp.id = ws.plan_id "
-        "WHERE we.id=?", (exercise_id,)
-    ).fetchone()
-    if not row: raise HTTPException(404, "Exercise not found")
-    conn.execute("DELETE FROM workout_exercises WHERE id=?", (exercise_id,))
-    conn.commit(); conn.close()
+    logger.info("Deleting exercise: exercise_id=%d", exercise_id)
+    with db_conn() as conn:
+        row = conn.execute(
+            "SELECT we.id FROM workout_exercises we "
+            "JOIN workout_sessions ws ON ws.id = we.session_id "
+            "JOIN workout_plans wp ON wp.id = ws.plan_id "
+            "WHERE we.id=?", (exercise_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "Exercise not found")
+        conn.execute("DELETE FROM workout_exercises WHERE id=?", (exercise_id,))
+        conn.commit()
     return {"deleted": exercise_id}
 
 
@@ -2024,38 +2207,49 @@ def delete_exercise(exercise_id: int):
 
 @app.get("/api/admin/smtp")
 def get_smtp():
-    conn = get_db()
-    row = dict(conn.execute("SELECT * FROM smtp_settings WHERE id=1").fetchone())
-    conn.close()
+    with db_conn() as conn:
+        row = dict(conn.execute("SELECT * FROM smtp_settings WHERE id=1").fetchone())
     row["use_tls"] = bool(row["use_tls"])
     row["password"] = "••••••••" if row["password"] else ""
     return row
 
 @app.put("/api/admin/smtp")
 def update_smtp(body: SmtpModel):
-    conn = get_db()
-    existing = dict(conn.execute("SELECT password FROM smtp_settings WHERE id=1").fetchone())
-    pw = body.password if (body.password and body.password != "••••••••") else existing["password"]
-    conn.execute("UPDATE smtp_settings SET host=?,port=?,username=?,password=?,from_name=?,use_tls=? WHERE id=1",
-                 (body.host,body.port,body.username,pw,body.from_name,int(body.use_tls)))
-    conn.commit(); conn.close()
+    logger.info("Updating SMTP settings: host=%r port=%d user=%r", body.host, body.port, body.username)
+    with db_conn() as conn:
+        existing = dict(conn.execute("SELECT password FROM smtp_settings WHERE id=1").fetchone())
+        pw = body.password if (body.password and body.password != "••••••••") else existing["password"]
+        conn.execute("UPDATE smtp_settings SET host=?,port=?,username=?,password=?,from_name=?,use_tls=? WHERE id=1",
+                     (body.host,body.port,body.username,pw,body.from_name,int(body.use_tls)))
+        conn.commit()
     return get_smtp()
 
 @app.post("/api/admin/test-smtp")
 def test_smtp():
-    conn = get_db()
-    cfg = dict(conn.execute("SELECT * FROM smtp_settings WHERE id=1").fetchone())
-    conn.close()
-    if not cfg["username"] or not cfg["password"]: raise HTTPException(400, "SMTP credentials not configured")
+    with db_conn() as conn:
+        cfg = dict(conn.execute("SELECT * FROM smtp_settings WHERE id=1").fetchone())
+    if not cfg["username"] or not cfg["password"]:
+        raise HTTPException(400, "SMTP credentials not configured — please set username and password first")
+    logger.info("Testing SMTP: host=%r port=%d user=%r tls=%s", cfg["host"], cfg["port"], cfg["username"], bool(cfg["use_tls"]))
     try:
         if cfg["use_tls"]:
-            s = smtplib.SMTP(cfg["host"], cfg["port"], timeout=10); s.starttls()
+            s = smtplib.SMTP(cfg["host"], cfg["port"], timeout=10)
+            s.starttls()
         else:
             s = smtplib.SMTP_SSL(cfg["host"], cfg["port"], timeout=10)
-        s.login(cfg["username"], cfg["password"]); s.quit()
-        return {"success":True,"message":"SMTP connection successful!"}
+        s.login(cfg["username"], cfg["password"])
+        s.quit()
+        logger.info("SMTP test successful: host=%r", cfg["host"])
+        return {"success": True, "message": "SMTP connection successful!"}
+    except smtplib.SMTPAuthenticationError as e:
+        logger.warning("SMTP authentication failed: host=%r user=%r error=%s", cfg["host"], cfg["username"], e)
+        raise HTTPException(400, f"Authentication failed — check your username and password. ({e})")
+    except smtplib.SMTPConnectError as e:
+        logger.error("SMTP connection error: host=%r port=%d error=%s", cfg["host"], cfg["port"], e)
+        raise HTTPException(400, f"Could not connect to {cfg['host']}:{cfg['port']} — check host and port. ({e})")
     except Exception as e:
-        raise HTTPException(400, f"Connection failed: {e}")
+        logger.error("SMTP test failed: host=%r error=%s", cfg["host"], e, exc_info=True)
+        raise HTTPException(400, f"SMTP connection failed: {e}")
 
 
 # ─── Excel Export ─────────────────────────────────────────────────────────────
@@ -2796,48 +2990,60 @@ def _build_workbook(athlete_id: int, plan_id: int = None):
 
 @app.get("/api/athletes/{athlete_id}/export-xlsx")
 def export_xlsx(athlete_id: int):
-    wb = _build_workbook(athlete_id)
+    logger.info("Building full Excel export: athlete_id=%d", athlete_id)
+    try:
+        wb = _build_workbook(athlete_id)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Excel export failed: athlete_id=%d error=%s", athlete_id, exc, exc_info=True)
+        raise HTTPException(500, f"Export failed — could not build workbook: {exc}")
     ath = get_athlete(athlete_id)
     safe_name = "".join(c for c in ath["name"] if c.isalnum() or c in " _-").strip() or "athlete"
     filename = f"BodyBuilder_{safe_name}.xlsx"
     buf = io.BytesIO()
     wb.save(buf); buf.seek(0)
+    logger.info("Excel export ready: athlete_id=%d filename=%r", athlete_id, filename)
     return StreamingResponse(buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                              headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
 @app.get("/api/athletes/{athlete_id}/workout-plans/{plan_id}/export-xlsx")
 def export_plan_xlsx(athlete_id: int, plan_id: int):
-    import traceback
+    logger.info("Building plan Excel export: athlete_id=%d plan_id=%d", athlete_id, plan_id)
     try:
         wb = _build_workbook(athlete_id, plan_id=plan_id)
     except HTTPException:
         raise
     except Exception as exc:
-        traceback.print_exc()
-        raise HTTPException(500, f"Export error: {exc}")
-    conn = get_db()
-    plan_row = conn.execute("SELECT title FROM workout_plans WHERE id=? AND athlete_id=?", (plan_id, athlete_id)).fetchone()
-    conn.close()
+        logger.error("Plan Excel export failed: athlete_id=%d plan_id=%d error=%s", athlete_id, plan_id, exc, exc_info=True)
+        raise HTTPException(500, f"Export failed — could not build workbook: {exc}")
+    with db_conn() as conn:
+        plan_row = conn.execute("SELECT title FROM workout_plans WHERE id=? AND athlete_id=?", (plan_id, athlete_id)).fetchone()
     if not plan_row:
         raise HTTPException(404, "Plan not found")
     safe_title = "".join(ch for ch in plan_row["title"] if ch.isalnum() or ch in " _-").strip() or "plan"
     filename = f"{safe_title}_workout.xlsx"
     buf = io.BytesIO()
     wb.save(buf); buf.seek(0)
+    logger.info("Plan Excel export ready: plan_id=%d filename=%r", plan_id, filename)
     return StreamingResponse(buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                              headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
 @app.post("/api/admin/send-program")
 def send_program(body: SendProgramModel):
-    conn = get_db()
-    cfg = dict(conn.execute("SELECT * FROM smtp_settings WHERE id=1").fetchone())
-    conn.close()
+    logger.info("Sending program email: athlete_id=%d to=%r", body.athlete_id, body.to_email)
+    with db_conn() as conn:
+        cfg = dict(conn.execute("SELECT * FROM smtp_settings WHERE id=1").fetchone())
     if not cfg["username"] or not cfg["password"]:
-        raise HTTPException(400, "SMTP credentials not configured")
+        raise HTTPException(400, "SMTP credentials not configured — please set up SMTP in Admin settings first")
     ath = get_athlete(body.athlete_id)
-    wb = _build_workbook(body.athlete_id)
+    try:
+        wb = _build_workbook(body.athlete_id)
+    except Exception as exc:
+        logger.error("send_program: failed to build workbook for athlete_id=%d: %s", body.athlete_id, exc, exc_info=True)
+        raise HTTPException(500, f"Could not generate program spreadsheet: {exc}")
     buf = io.BytesIO(); wb.save(buf); buf.seek(0)
     safe_name = "".join(c for c in ath["name"] if c.isalnum() or c in " _-").strip() or "athlete"
     filename = f"BodyBuilder_{safe_name}.xlsx"
@@ -2853,14 +3059,20 @@ def send_program(body: SendProgramModel):
     msg.attach(part)
     try:
         if cfg["use_tls"]:
-            s = smtplib.SMTP(cfg["host"], cfg["port"], timeout=15); s.starttls()
+            s = smtplib.SMTP(cfg["host"], cfg["port"], timeout=15)
+            s.starttls()
         else:
             s = smtplib.SMTP_SSL(cfg["host"], cfg["port"], timeout=15)
-        s.login(cfg["username"], cfg["password"]); s.sendmail(cfg["username"], body.to_email, msg.as_string()); s.quit()
-        return {"success":True,"message":f"Program sent to {body.to_email}"}
-    except smtplib.SMTPAuthenticationError:
-        raise HTTPException(400, "SMTP authentication failed. Check username/password (use App Password for Gmail).")
+        s.login(cfg["username"], cfg["password"])
+        s.sendmail(cfg["username"], body.to_email, msg.as_string())
+        s.quit()
+        logger.info("Program email sent: to=%r athlete=%r", body.to_email, ath["name"])
+        return {"success": True, "message": f"Program sent to {body.to_email}"}
+    except smtplib.SMTPAuthenticationError as e:
+        logger.warning("send_program: SMTP auth failed: user=%r error=%s", cfg["username"], e)
+        raise HTTPException(400, "SMTP authentication failed — check username/password (use an App Password for Gmail).")
     except Exception as e:
+        logger.error("send_program: email delivery failed: to=%r error=%s", body.to_email, e, exc_info=True)
         raise HTTPException(500, f"Failed to send email: {e}")
 
 
@@ -2869,13 +3081,14 @@ def send_program(body: SendProgramModel):
 @app.get("/api/exercise-image")
 def get_exercise_image(name: str):
     """Look up the cached local image path for a named exercise."""
-    conn = get_db()
-    row = conn.execute(
-        "SELECT image_path FROM exercise_images WHERE name=?", (name,)
-    ).fetchone()
-    conn.close()
+    logger.debug("Exercise image lookup: name=%r", name)
+    with db_conn() as conn:
+        row = conn.execute(
+            "SELECT image_path FROM exercise_images WHERE name=?", (name,)
+        ).fetchone()
     if row and row["image_path"] and (EXERCISE_IMAGES_DIR / row["image_path"]).exists():
         return {"image_url": f"/exercise-images/{row['image_path']}", "found": True}
+    logger.debug("Exercise image not found: name=%r", name)
     return {"image_url": "", "found": False}
 
 
@@ -2884,7 +3097,10 @@ def start_image_seed(force: bool = False):
     """Kick off a background fetch of exercise images from Wger. Idempotent."""
     global _seed_state
     if _seed_state["running"]:
+        logger.info("Image seed already running: done=%d errors=%d total=%d",
+                    _seed_state.get("done", 0), _seed_state.get("errors", 0), _seed_state.get("total", 0))
         return {"status": "already_running", **_seed_state}
+    logger.info("Starting image seed: force=%s total=%d", force, len(EXERCISE_ALL))
     thread = threading.Thread(target=_run_seed, kwargs={"force": force}, daemon=True)
     thread.start()
     return {"status": "started", "total": len(EXERCISE_ALL)}
@@ -2939,18 +3155,18 @@ def _checksum(data: dict) -> str:
 @app.get("/api/backup")
 def create_backup():
     """Return a full backup of all application data as JSON."""
-    conn = get_db()
+    logger.info("Creating backup: tables=%s", BACKUP_TABLES)
     data: dict = {}
-    try:
+    with db_conn() as conn:
         for table in BACKUP_TABLES:
             rows = conn.execute(f"SELECT * FROM {table}").fetchall()
             data[table] = [dict(r) for r in rows]
-    finally:
-        conn.close()
 
     # Checksum placeholder — the real checksum is computed client-side in JS
     # after JSON.stringify so it reflects the exact bytes written to the file.
     # This avoids Python float serialisation differences (175.0 vs 175).
+    total_rows = sum(len(v) for v in data.values())
+    logger.info("Backup complete: %d rows across %d tables", total_rows, len(data))
     return {
         "format": "bodybuilder-backup",
         "app_version": ".".join(str(x) for x in APP_VERSION),
@@ -2963,12 +3179,15 @@ def create_backup():
 @app.post("/api/restore")
 async def restore_backup(request: Request):
     """Replace all application data from a .bb backup file."""
+    logger.info("Restore requested")
     try:
         body = await request.json()
-    except Exception:
+    except Exception as exc:
+        logger.warning("Restore failed — could not parse request body: %s", exc)
         raise HTTPException(400, "Invalid file — could not parse JSON")
 
     if body.get("format") != "bodybuilder-backup":
+        logger.warning("Restore rejected — wrong format: %r", body.get("format"))
         raise HTTPException(
             422,
             "Incompatible file type — this is not a BodyBuilder backup file"
@@ -2976,6 +3195,7 @@ async def restore_backup(request: Request):
 
     data = body.get("data")
     if not isinstance(data, dict):
+        logger.warning("Restore rejected — missing data section")
         raise HTTPException(400, "Backup file is missing data section")
 
     # Checksum is verified client-side in JS (canonicalJSON + SHA-256) before the
@@ -2983,6 +3203,7 @@ async def restore_backup(request: Request):
     # it here avoids any remaining Python/JS serialisation differences (e.g.
     # ensure_ascii, float representation) that could cause spurious failures.
 
+    logger.info("Restoring data: %d tables, %d athletes", len(data), len(data.get("athletes", [])))
     conn = get_db()
     try:
         conn.execute("PRAGMA foreign_keys = OFF")
@@ -3007,6 +3228,7 @@ async def restore_backup(request: Request):
                 r["name"]
                 for r in conn.execute(f"PRAGMA table_info({table})").fetchall()
             }
+            inserted = 0
             for row in rows:
                 safe_row = {k: v for k, v in row.items() if k in valid_cols}
                 if not safe_row:
@@ -3017,13 +3239,17 @@ async def restore_backup(request: Request):
                     f"INSERT OR REPLACE INTO {table} ({cols}) VALUES ({placeholders})",
                     list(safe_row.values()),
                 )
+                inserted += 1
+            logger.debug("Restore: inserted %d rows into %s", inserted, table)
 
         conn.execute("PRAGMA foreign_keys = ON")
         conn.commit()
+        logger.info("Restore committed successfully: %d athletes", len(data.get("athletes", [])))
     except Exception as exc:
+        logger.error("Restore failed — rolling back: %s", exc, exc_info=True)
         conn.rollback()
         conn.close()
-        raise HTTPException(500, "Restore failed — database could not be updated. Check server.log for details.")
+        raise HTTPException(500, f"Restore failed — database could not be updated: {exc}")
 
     conn.close()
     return {

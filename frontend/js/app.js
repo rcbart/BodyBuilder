@@ -34,7 +34,7 @@ function App() {
 
   useEffect(() => {
     loadAthletes();
-    apiGet("/version").then(setVersion).catch(() => {});
+    apiGet("/version").then(setVersion).catch(err => console.warn("[App] Could not fetch version:", err.message));
   }, []);
 
   // Close athlete menu on outside click
@@ -56,6 +56,7 @@ function App() {
         setShowManage(true);
       }
     } catch (err) {
+      console.error("[App] Failed to load athletes:", err.message);
       toast.show("Failed to load athletes", "error");
     }
     setLoading(false);

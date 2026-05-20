@@ -40,7 +40,7 @@ function SupplementDialog({ supplement, athleteId, defaultDay, defaultTime, onSa
       onSave();
       onClose();
     } catch(err) {
-      console.error('[Supplements] Error:', err.message || 'Failed to save supplement', err); toast.show(err.message || 'Failed to save supplement', 'error');
+      toast.show(err.message || "Failed to save supplement", "error");
     } finally {
       setSaving(false);
     }
@@ -130,7 +130,7 @@ function SupplementsTab({ athleteId, toast }) {
     try {
       const d = await apiGet(`/athletes/${athleteId}/supplements`);
       setSupplements(d);
-    } catch(err) { console.error('[Supplements] Error:', err.message, err); toast.show(err.message, 'error'); }
+    } catch(err) { toast.show(err.message, "error"); }
   }
 
   async function deleteSup(sup) {
@@ -140,7 +140,7 @@ function SupplementsTab({ athleteId, toast }) {
       await apiDel(`/athletes/${athleteId}/supplements/${sup.id}`);
       loadSupplements();
       toast.show("Supplement removed", "success");
-    } catch(err) { console.error('[Supplements] Error:', err.message, err); toast.show(err.message, 'error'); }
+    } catch(err) { toast.show(err.message, "error"); }
   }
 
   function openAdd(time) {
